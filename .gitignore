@@ -1,0 +1,37 @@
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.env
+
+# Generated files — do not commit
+uploads/
+*.mp4
+*.webm
+*.mp3
+
+# Test scripts
+e2e_test.mjs
+qa_final.mjs
+probe.mjs
+probe.js
+make_test_image.js
+test_generation.js
