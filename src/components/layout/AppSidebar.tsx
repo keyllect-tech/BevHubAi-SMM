@@ -22,17 +22,21 @@ const navItems = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
-export function AppSidebar() {
-  const { workspace, signOut, user } = useAuth();
+function useSignOut() {
+  const { signOut } = useAuth();
   const navigate = useNavigate();
-
-  const handleSignOut = async () => {
+  return async () => {
     await signOut();
     navigate('/');
   };
+}
+
+export function AppSidebar() {
+  const { workspace, user } = useAuth();
+  const handleSignOut = useSignOut();
 
   return (
-    <aside className="w-64 shrink-0 border-r border-border-default bg-bg-card flex flex-col h-screen sticky top-0">
+    <aside className="hidden md:flex w-64 shrink-0 border-r border-border-default bg-bg-card flex-col h-screen sticky top-0">
       {/* Logo */}
       <div className="h-16 flex items-center gap-2 px-6 border-b border-border-default">
         <div className="h-8 w-8 rounded-lg bg-accent flex items-center justify-center">
@@ -84,11 +88,48 @@ export function AppSidebar() {
             onClick={handleSignOut}
             className="text-muted hover:text-white transition-colors shrink-0"
             title="Выйти"
+            aria-label="Выйти"
           >
             <LogOut size={18} />
           </button>
         </div>
       </div>
     </aside>
+  );
+}
+
+/** Horizontal nav shown instead of the sidebar below the md breakpoint. */
+export function MobileNav() {
+  const handleSignOut = useSignOut();
+
+  return (
+    <nav className="md:hidden border-b border-border-default bg-bg-card">
+      <div className="flex items-center gap-1 px-2 py-2 overflow-x-auto scrollbar-thin">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap shrink-0 transition-colors ${
+                  isActive ? 'bg-accent/10 text-accent font-medium' : 'text-muted hover:text-white'
+                }`
+              }
+            >
+              <Icon size={16} />
+              {item.label}
+            </NavLink>
+          );
+        })}
+        <button
+          onClick={handleSignOut}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-muted hover:text-white whitespace-nowrap shrink-0"
+        >
+          <LogOut size={16} />
+          Выйти
+        </button>
+      </div>
+    </nav>
   );
 }

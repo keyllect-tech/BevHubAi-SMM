@@ -20,13 +20,14 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError('');
     if (password !== confirm) {
       setError('Пароли не совпадают');
       return;
     }
-    if (password.length < 6) {
-      setError('Пароль должен быть не менее 6 символов');
+    if (password.length < 8) {
+      setError('Пароль должен быть не менее 8 символов');
       return;
     }
     setLoading(true);
@@ -52,11 +53,7 @@ export function RegisterPage() {
             без монтажёра, без сложного софта.
           </p>
           <div className="space-y-3">
-            {[
-              '15 видео в месяц на старте',
-              'Поддержка русского и узбекского',
-              'Готовый MP4 для соцсетей',
-            ].map((f) => (
+            {['15 видео в месяц на старте', 'Поддержка русского и узбекского', 'Готовый MP4 для соцсетей'].map((f) => (
               <div key={f} className="flex items-center gap-3">
                 <Sparkles size={18} className="text-accent" />
                 <span className="text-white/80 text-sm">{f}</span>
@@ -75,6 +72,7 @@ export function RegisterPage() {
           type="text"
           placeholder="Иван Иванов"
           autoComplete="name"
+          maxLength={80}
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
@@ -91,7 +89,7 @@ export function RegisterPage() {
         <Input
           label="Пароль"
           type="password"
-          placeholder="••••••••"
+          placeholder="Минимум 8 символов"
           autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -107,7 +105,7 @@ export function RegisterPage() {
           required
         />
         {error && (
-          <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          <div role="alert" className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
             {error}
           </div>
         )}

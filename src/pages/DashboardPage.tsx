@@ -1,113 +1,70 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Video as VideoIcon, Calendar, FolderKanban, Sparkles, Play, AlertCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api, apiUrl } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, Badge } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import type { Video, Project, Subscription, Usage } from '@/types';
+import type { Video, Subscription, Usage } from '@/types';
 
 export function DashboardPage() {
   const { workspace } = useAuth();
   const navigate = useNavigate();
   const [videos, setVideos] = useState<Video[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [totalVideos, setTotalVideos] = useState(0);
+  const [projectsCount, setProjectsCount] = useState(0);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!workspace) return;
-    const load = async () => {
-      const [videosRes, projectsRes, subRes] = await Promise.all([
-        supabase
-          .from('videos')
-          .select('*')
-          .eq('workspace_id', workspace.id)
-          .order('created_at', { ascending: false })
-          .limit(6),
-        supabase.from('projects').select('*').eq('workspace_id', workspace.id),
-        supabase
-          .from('subscriptions')
-          .select('*')
-          .eq('workspace_id', workspace.id)
-          .maybeSingle(),
-      ]);
-
-      setVideos(videosRes.data as Video[] || []);
-      setProjects(projectsRes.data as Project[] || []);
-      setSubscription(subRes.data as Subscription | null);
-
-      const now = new Date();
-      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const usageRes = await supabase
-        .from('usage')
-        .select('*')
-        .eq('workspace_id', workspace.id)
-        .eq('month_start', monthStart)
-        .maybeSingle();
-      setUsage(usageRes.data as Usage | null);
-      setLoading(false);
+    let mounted = true;
+    api
+      .dashboard()
+      .then((data) => {
+        if (!mounted) return;
+        setVideos(data.videos);
+        setTotalVideos(data.totalVideos);
+        setProjectsCount(data.projectsCount);
+        setSubscription(data.subscription);
+        setUsage(data.usage);
+      })
+      .catch((err) => mounted && setError(err.message))
+      .finally(() => mounted && setLoading(false));
+    return () => {
+      mounted = false;
     };
-    load();
-  }, [workspace]);
+  }, []);
 
+  const limit = subscription?.monthly_limit || 15;
+  const used = usage?.videos_created || 0;
   const stats = [
-    {
-      label: 'Всего видео',
-      value: videos.length,
-      icon: VideoIcon,
-      color: 'text-accent',
-    },
-    {
-      label: 'Создано в этом месяце',
-      value: usage?.videos_created || 0,
-      icon: Calendar,
-      color: 'text-blue-400',
-    },
-    {
-      label: 'Проекты',
-      value: projects.length,
-      icon: FolderKanban,
-      color: 'text-purple-400',
-    },
-    {
-      label: 'Остаток генераций',
-      value: `${(subscription?.monthly_limit || 15) - (usage?.videos_created || 0)} / ${subscription?.monthly_limit || 15}`,
-      icon: Sparkles,
-      color: 'text-accent',
-    },
+    { label: 'Всего видео', value: totalVideos, icon: VideoIcon, color: 'text-accent' },
+    { label: 'Создано в этом месяце', value: used, icon: Calendar, color: 'text-blue-400' },
+    { label: 'Проекты', value: projectsCount, icon: FolderKanban, color: 'text-purple-400' },
+    { label: 'Остаток генераций', value: `${Math.max(0, limit - used)} / ${limit}`, icon: Sparkles, color: 'text-accent' },
   ];
-
-  const statusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <Badge variant="success">Completed</Badge>;
-      case 'processing':
-        return <Badge variant="warning">Processing</Badge>;
-      case 'queued':
-        return <Badge variant="default">Queued</Badge>;
-      case 'failed':
-        return <Badge variant="error">Failed</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
-  };
 
   return (
     <AppLayout title="Dashboard">
+      {error && (
+        <div role="alert" className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20">
+          <AlertCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-300">{error}</p>
+        </div>
+      )}
       {workspace?.demo_mode && (
         <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-lg bg-accent/10 border border-accent/20">
           <Sparkles size={18} className="text-accent shrink-0" />
           <p className="text-sm text-white/90">
-            <span className="text-accent font-medium">Demo Mode активен.</span> AI APIs не настроены —
-            видео генерируется локально в браузере. Добавьте API ключи в настройках для Real AI Mode.
+            <span className="text-accent font-medium">Demo Mode.</span> Если OpenAI недоступен, сценарий создаётся по
+            шаблонам. Видео, субтитры и озвучка генерируются на сервере.
           </p>
         </div>
       )}
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => {
           const Icon = stat.icon;
@@ -125,7 +82,6 @@ export function DashboardPage() {
         })}
       </div>
 
-      {/* Recent Videos */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white">Recent Videos</h2>
         <Link to="/videos" className="text-sm text-accent hover:underline">
@@ -161,7 +117,7 @@ export function DashboardPage() {
                 <div className="relative aspect-[9/16] bg-bg-elevated rounded-lg overflow-hidden mb-3 max-h-48">
                   {video.thumbnail_url ? (
                     <img
-                      src={video.thumbnail_url}
+                      src={apiUrl(video.thumbnail_url)}
                       alt={video.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
@@ -177,13 +133,13 @@ export function DashboardPage() {
                       </div>
                     </div>
                   )}
-                  <div className="absolute top-2 right-2">{statusBadge(video.status)}</div>
+                  <div className="absolute top-2 right-2">
+                    <StatusBadge status={video.status} />
+                  </div>
                 </div>
                 <p className="text-sm font-medium text-white truncate">{video.title}</p>
                 <div className="flex items-center justify-between mt-1">
-                  <p className="text-xs text-muted">
-                    {new Date(video.created_at).toLocaleDateString('ru-RU')}
-                  </p>
+                  <p className="text-xs text-muted">{new Date(video.created_at).toLocaleDateString('ru-RU')}</p>
                   {video.status === 'failed' && (
                     <span className="text-xs text-red-400 flex items-center gap-1">
                       <AlertCircle size={12} />
@@ -198,4 +154,17 @@ export function DashboardPage() {
       )}
     </AppLayout>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'completed':
+      return <Badge variant="success">Completed</Badge>;
+    case 'processing':
+      return <Badge variant="warning">Processing</Badge>;
+    case 'failed':
+      return <Badge variant="error">Failed</Badge>;
+    default:
+      return <Badge>{status}</Badge>;
+  }
 }

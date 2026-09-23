@@ -1,11 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Session, User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
-import type { Workspace } from '@/types';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { api, UNAUTHORIZED_EVENT } from '@/lib/api';
+import type { User, Workspace } from '@/types';
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
   workspace: Workspace | null;
   loading: boolean;
   signUp: (email: string, password: string, name: string) => Promise<{ error: string | null }>;
@@ -16,115 +14,82 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function getNetworkErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
-      return 'Не удаётся подключиться к серверу. Проверьте интернет или настройки приложения.';
-    }
-    return err.message;
-  }
-  return 'Неизвестная ошибка. Попробуйте ещё раз.';
-}
-
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : 'Неизвестная ошибка. Попробуйте ещё раз.');
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadWorkspace = async (userId: string) => {
-    const { data } = await supabase
-      .from('workspaces')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-    setWorkspace(data as Workspace | null);
-  };
+  const clear = useCallback(() => {
+    setUser(null);
+    setWorkspace(null);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
+    api
+      .me()
+      .then((data) => {
+        if (!mounted) return;
+        setUser(data.user);
+        setWorkspace(data.workspace);
+      })
+      .catch((err) => console.error('[AUTH] session check failed:', errorMessage(err)))
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadWorkspace(session.user.id).finally(() => setLoading(false));
-      } else {
-        setLoading(false);
-      }
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      (async () => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await loadWorkspace(session.user.id);
-        } else {
-          setWorkspace(null);
-        }
-        setLoading(false);
-      })();
-    });
-
+    window.addEventListener(UNAUTHORIZED_EVENT, clear);
     return () => {
       mounted = false;
-      listener.subscription.unsubscribe();
+      window.removeEventListener(UNAUTHORIZED_EVENT, clear);
     };
-  }, []);
+  }, [clear]);
 
   const signUp = async (email: string, password: string, name: string) => {
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name } },
-      });
-      if (error) return { error: error.message };
-      if (data.user) {
-        await supabase.from('workspaces').insert({
-          user_id: data.user.id,
-          name: `${name}'s Workspace`,
-          demo_mode: true,
-        });
-        await supabase.from('subscriptions').insert({
-          workspace_id: (await supabase.from('workspaces').select('id').eq('user_id', data.user.id).maybeSingle()).data?.id,
-          plan: 'starter',
-          monthly_limit: 15,
-        });
-        await loadWorkspace(data.user.id);
-      }
+      const data = await api.register(name, email, password);
+      setUser(data.user);
+      setWorkspace(data.workspace);
       return { error: null };
     } catch (err) {
-      return { error: getNetworkErrorMessage(err) };
+      return { error: errorMessage(err) };
     }
   };
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { error: error.message };
+      const data = await api.login(email, password);
+      setUser(data.user);
+      setWorkspace(data.workspace);
       return { error: null };
     } catch (err) {
-      return { error: getNetworkErrorMessage(err) };
+      return { error: errorMessage(err) };
     }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setWorkspace(null);
+    try {
+      await api.logout();
+    } catch (err) {
+      console.warn('[AUTH] logout request failed:', errorMessage(err));
+    }
+    clear();
   };
 
   const refreshWorkspace = async () => {
-    if (user) await loadWorkspace(user.id);
+    try {
+      const data = await api.me();
+      setUser(data.user);
+      setWorkspace(data.workspace);
+    } catch (err) {
+      console.error('[AUTH] refresh failed:', errorMessage(err));
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, workspace, loading, signUp, signIn, signOut, refreshWorkspace }}>
+    <AuthContext.Provider value={{ user, workspace, loading, signUp, signIn, signOut, refreshWorkspace }}>
       {children}
     </AuthContext.Provider>
   );

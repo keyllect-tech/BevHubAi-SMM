@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, Sparkles, Zap, Crown, TrendingUp } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card } from '@/components/ui/Card';
@@ -11,63 +10,42 @@ import { PLANS, type Subscription, type Usage } from '@/types';
 const planIcons = { starter: Sparkles, pro: Zap, agency: Crown };
 
 export function BillingPage() {
-  const { workspace } = useAuth();
   const { toast } = useToast();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [loading, setLoading] = useState(true);
-  const [changing, setChanging] = useState(false);
+  const [changingTo, setChangingTo] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!workspace) return;
-    const load = async () => {
-      const { data: sub } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('workspace_id', workspace.id)
-        .maybeSingle();
-      setSubscription(sub as Subscription | null);
-
-      const now = new Date();
-      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const { data: usageData } = await supabase
-        .from('usage')
-        .select('*')
-        .eq('workspace_id', workspace.id)
-        .eq('month_start', monthStart)
-        .maybeSingle();
-      setUsage(usageData as Usage | null);
-      setLoading(false);
+    let mounted = true;
+    api
+      .billing()
+      .then((data) => {
+        if (!mounted) return;
+        setSubscription(data.subscription);
+        setUsage(data.usage);
+      })
+      .catch((err) => toast(err.message, 'error'))
+      .finally(() => mounted && setLoading(false));
+    return () => {
+      mounted = false;
     };
-    load();
-  }, [workspace]);
+  }, [toast]);
 
   const handleUpgrade = async (planId: string) => {
-    if (!workspace) return;
-    setChanging(true);
     const plan = PLANS.find((p) => p.id === planId);
-    if (!plan) return;
-
-    if (subscription) {
-      await supabase
-        .from('subscriptions')
-        .update({ plan: plan.id, monthly_limit: plan.monthly_limit })
-        .eq('id', subscription.id);
-    } else {
-      await supabase.from('subscriptions').insert({
-        workspace_id: workspace.id,
-        plan: plan.id,
-        monthly_limit: plan.monthly_limit,
-      });
+    if (!plan || changingTo) return;
+    setChangingTo(planId);
+    try {
+      const data = await api.changePlan(plan.id);
+      setSubscription(data.subscription);
+      setUsage(data.usage);
+      toast(`План изменён на ${plan.name}`, 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Не удалось сменить план', 'error');
+    } finally {
+      setChangingTo(null);
     }
-
-    setSubscription({
-      ...subscription,
-      plan: plan.id,
-      monthly_limit: plan.monthly_limit,
-    } as Subscription);
-    setChanging(false);
-    toast(`План изменён на ${plan.name}`, 'success');
   };
 
   const videosUsed = usage?.videos_created || 0;
@@ -89,7 +67,6 @@ export function BillingPage() {
   return (
     <AppLayout title="Billing">
       <div className="max-w-4xl mx-auto">
-        {/* Usage */}
         <Card className="mb-6">
           <h2 className="text-lg font-semibold text-white mb-1">Использование</h2>
           <p className="text-muted text-sm mb-5">Текущий месяц</p>
@@ -102,31 +79,25 @@ export function BillingPage() {
           </div>
           <div className="h-3 bg-bg-elevated rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                isLimitReached ? 'bg-red-500' : 'bg-accent'
-              }`}
+              className={`h-full rounded-full transition-all duration-500 ${isLimitReached ? 'bg-red-500' : 'bg-accent'}`}
               style={{ width: `${usedPct}%` }}
             />
           </div>
           {isLimitReached && (
             <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-2">
               <TrendingUp size={18} className="text-red-400" />
-              <p className="text-sm text-red-400">Generation limit reached. Upgrade your plan.</p>
+              <p className="text-sm text-red-400">Лимит генераций исчерпан. Смените тариф.</p>
             </div>
           )}
         </Card>
 
-        {/* Plans */}
         <h2 className="text-lg font-semibold text-white mb-4">Тарифные планы</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {PLANS.map((plan) => {
             const Icon = planIcons[plan.id as keyof typeof planIcons] || Sparkles;
             const isCurrent = currentPlan === plan.id;
             return (
-              <Card
-                key={plan.id}
-                className={`relative ${isCurrent ? 'border-accent/40 accent-glow' : ''}`}
-              >
+              <Card key={plan.id} className={`relative ${isCurrent ? 'border-accent/40 accent-glow' : ''}`}>
                 {isCurrent && (
                   <div className="absolute -top-2 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-accent text-bg text-xs font-semibold">
                     Current
@@ -150,7 +121,6 @@ export function BillingPage() {
                     'AI script generation',
                     'Auto subtitles',
                     '1080×1920 vertical format',
-                    plan.id !== 'starter' ? 'Custom voice upload' : 'Standard voices',
                     plan.id === 'agency' ? 'Priority support' : 'Community support',
                   ].map((feat) => (
                     <li key={feat} className="flex items-center gap-2 text-sm text-white/80">
@@ -163,20 +133,18 @@ export function BillingPage() {
                 <Button
                   variant={isCurrent ? 'secondary' : 'primary'}
                   className="w-full"
-                  disabled={isCurrent || changing}
-                  loading={changing && !isCurrent}
+                  disabled={isCurrent || Boolean(changingTo)}
+                  loading={changingTo === plan.id}
                   onClick={() => handleUpgrade(plan.id)}
                 >
-                  {isCurrent ? 'Current plan' : 'Upgrade'}
+                  {isCurrent ? 'Current plan' : 'Switch'}
                 </Button>
               </Card>
             );
           })}
         </div>
 
-        <p className="text-center text-xs text-muted mt-6">
-          Это mock биллинг для MVP. Реальная оплата через Stripe будет доступна позже.
-        </p>
+        <p className="text-center text-xs text-muted mt-6">Это mock биллинг для MVP. Реальная оплата будет подключена позже.</p>
       </div>
     </AppLayout>
   );

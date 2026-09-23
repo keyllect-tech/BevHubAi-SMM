@@ -1,32 +1,31 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Video as VideoIcon, Play, AlertCircle, PlusCircle, Clock } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { api, apiUrl } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, Badge } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import type { Video } from '@/types';
 
+const FILTERS = ['all', 'completed', 'processing', 'failed'];
+
 export function VideosPage() {
-  const { workspace } = useAuth();
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [filter, setFilter] = useState<string>('all');
 
   useEffect(() => {
-    if (!workspace) return;
-    const load = async () => {
-      const { data } = await supabase
-        .from('videos')
-        .select('*')
-        .eq('workspace_id', workspace.id)
-        .order('created_at', { ascending: false });
-      setVideos(data as Video[] || []);
-      setLoading(false);
+    let mounted = true;
+    api
+      .listVideos()
+      .then((data) => mounted && setVideos(data.videos))
+      .catch((err) => mounted && setError(err.message))
+      .finally(() => mounted && setLoading(false));
+    return () => {
+      mounted = false;
     };
-    load();
-  }, [workspace]);
+  }, []);
 
   const filtered = filter === 'all' ? videos : videos.filter((v) => v.status === filter);
 
@@ -36,8 +35,6 @@ export function VideosPage() {
         return <Badge variant="success">Completed</Badge>;
       case 'processing':
         return <Badge variant="warning">Processing</Badge>;
-      case 'queued':
-        return <Badge variant="default">Queued</Badge>;
       case 'failed':
         return <Badge variant="error">Failed</Badge>;
       default:
@@ -45,20 +42,16 @@ export function VideosPage() {
     }
   };
 
-  const filters = ['all', 'completed', 'processing', 'failed'];
-
   return (
     <AppLayout title="My Videos">
       <div className="flex items-center justify-between mb-6">
-        <div className="flex gap-2">
-          {filters.map((f) => (
+        <div className="flex gap-2 overflow-x-auto">
+          {FILTERS.map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors capitalize ${
-                filter === f
-                  ? 'bg-accent/10 text-accent border border-accent/20'
-                  : 'text-muted hover:text-white border border-transparent'
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors capitalize whitespace-nowrap ${
+                filter === f ? 'bg-accent/10 text-accent border border-accent/20' : 'text-muted hover:text-white border border-transparent'
               }`}
             >
               {f === 'all' ? 'Все' : f}
@@ -66,6 +59,13 @@ export function VideosPage() {
           ))}
         </div>
       </div>
+
+      {error && (
+        <div role="alert" className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20">
+          <AlertCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-300">{error}</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -99,7 +99,7 @@ export function VideosPage() {
                 <div className="relative aspect-[9/16] bg-bg-elevated rounded-lg overflow-hidden mb-3">
                   {video.thumbnail_url ? (
                     <img
-                      src={video.thumbnail_url}
+                      src={apiUrl(video.thumbnail_url)}
                       alt={video.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
@@ -116,7 +116,7 @@ export function VideosPage() {
                     </div>
                   )}
                   <div className="absolute top-2 right-2">{statusBadge(video.status)}</div>
-                  {video.duration_sec > 0 && (
+                  {video.status === 'completed' && (
                     <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/70 text-xs text-white flex items-center gap-1">
                       <Clock size={10} />
                       {video.duration_sec}s
@@ -125,9 +125,7 @@ export function VideosPage() {
                 </div>
                 <p className="text-sm font-medium text-white truncate">{video.title}</p>
                 <div className="flex items-center justify-between mt-1">
-                  <p className="text-xs text-muted">
-                    {new Date(video.created_at).toLocaleDateString('ru-RU')}
-                  </p>
+                  <p className="text-xs text-muted">{new Date(video.created_at).toLocaleDateString('ru-RU')}</p>
                   {video.status === 'failed' && (
                     <span className="text-xs text-red-400 flex items-center gap-1">
                       <AlertCircle size={12} />

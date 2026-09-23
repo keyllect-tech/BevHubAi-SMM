@@ -8,16 +8,19 @@ export function AppTopbar({ title, children }: { title: string; children?: React
 
   return (
     <header className="h-16 border-b border-border-default bg-bg-card/50 backdrop-blur-sm sticky top-0 z-30">
-      <div className="h-full px-6 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-white">{title}</h1>
-        <div className="flex items-center gap-3">
+      <div className="h-full px-4 md:px-6 flex items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold text-white truncate min-w-0">{title}</h1>
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {children}
-          <button className="h-9 w-9 rounded-lg flex items-center justify-center text-muted hover:text-white hover:bg-bg-elevated transition-colors">
+          <button
+            aria-label="Уведомления"
+            className="hidden sm:flex h-9 w-9 rounded-lg items-center justify-center text-muted hover:text-white hover:bg-bg-elevated transition-colors"
+          >
             <Bell size={18} />
           </button>
-          <Button size="md" onClick={() => navigate('/create')}>
+          <Button size="md" onClick={() => navigate('/create')} aria-label="Create New Video">
             <PlusCircle size={18} />
-            Create New Video
+            <span className="hidden sm:inline">Create New Video</span>
           </Button>
         </div>
       </div>

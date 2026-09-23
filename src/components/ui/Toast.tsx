@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info';
@@ -25,13 +25,15 @@ export function useToast() {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const toast = (message: string, type: ToastType = 'success') => {
+  // Stable identity: pages list `toast` in effect dependencies.
+  const toast = useCallback((message: string, type: ToastType = 'success') => {
     const id = Math.random().toString(36).slice(2);
     setToasts((prev) => [...prev, { id, type, message }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
-  };
+  }, []);
+  const value = useMemo(() => ({ toast }), [toast]);
 
   const dismiss = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
@@ -42,7 +44,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
         {toasts.map((t) => (

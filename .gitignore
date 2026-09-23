@@ -35,3 +35,6 @@ probe.mjs
 probe.js
 make_test_image.js
 test_generation.js
+
+# Local SQLite database
+data/

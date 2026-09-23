@@ -1,3 +1,10 @@
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  created_at: string;
+}
+
 export interface Workspace {
   id: string;
   user_id: string;
@@ -40,11 +47,13 @@ export interface Video {
   website_url: string;
   language: string;
   voice_type: string;
-  voice_url: string;
   style: string;
   script_hook: string;
+  /** Both benefits, separated by a newline. */
   script_body: string;
   script_cta: string;
+  script_source: string;
+  audio_kind: string;
   status: VideoStatus;
   video_url: string;
   thumbnail_url: string;
@@ -56,31 +65,23 @@ export interface Video {
 export interface VideoAsset {
   id: string;
   video_id: string;
-  asset_type: string;
+  file_id: string;
   file_url: string;
-  file_name: string;
-  file_size: number;
-  mime_type: string;
+  asset_type: string;
   sort_order: number;
   created_at: string;
 }
 
 export interface GenerationJob {
-  id: string;
-  video_id: string;
-  status: VideoStatus;
+  status: string;
   progress: number;
   current_step: string;
-  provider: string;
   error_message: string;
-  started_at: string | null;
+  started_at: string;
   completed_at: string | null;
-  created_at: string;
 }
 
 export interface Subscription {
-  id: string;
-  workspace_id: string;
   plan: string;
   monthly_limit: number;
   status: string;
@@ -88,10 +89,15 @@ export interface Subscription {
 }
 
 export interface Usage {
-  id: string;
-  workspace_id: string;
   month_start: string;
   videos_created: number;
+}
+
+export interface VideoScript {
+  hook: string;
+  benefit1: string;
+  benefit2: string;
+  cta: string;
 }
 
 export const GENERATION_STEPS = [
