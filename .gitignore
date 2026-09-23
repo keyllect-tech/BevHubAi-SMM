@@ -38,3 +38,6 @@ test_generation.js
 
 # Local SQLite database
 data/
+
+# Local test-data backups
+_testdata_backup_*/
