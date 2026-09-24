@@ -19,6 +19,8 @@ import {
   detectImageType,
   validateImageDecodes,
   generateAIScript,
+  isOpenAIActive,
+  maleVoiceAvailable,
 } from './server/media.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -338,7 +340,8 @@ setInterval(() => {
 api.post('/scripts', async (req, res) => {
   const parsed = parseScriptFields(req.body);
   if (parsed.error) throw httpError(400, parsed.error);
-  if (!takeScriptQuota(req.workspace.id)) {
+  // The quota protects the OpenAI bill; the free local generator is not limited.
+  if (isOpenAIActive() && !takeScriptQuota(req.workspace.id)) {
     throw httpError(429, 'Слишком много запросов сценария. Попробуйте через несколько минут.');
   }
   res.json(await generateAIScript(parsed.value));
@@ -375,7 +378,9 @@ api.post('/videos', (req, res) => {
     if (!getOwnedProject(req, body.projectId)) throw httpError(400, 'Проект не найден');
     projectId = body.projectId;
   }
-  const voiceType = VOICE_TYPES.includes(body.voiceType) ? body.voiceType : 'female';
+  // Only English has a male voice; store what will actually be rendered so the UI never shows a
+  // voice the video does not have.
+  const voiceType = body.voiceType === 'male' && VOICE_TYPES.includes(body.voiceType) && maleVoiceAvailable(language) ? 'male' : 'female';
   const websiteUrl = cleanText(body.websiteUrl, 300);
   if (websiteUrl && !/^https?:\/\//i.test(websiteUrl)) throw httpError(400, 'Website URL должен начинаться с http:// или https://');
 

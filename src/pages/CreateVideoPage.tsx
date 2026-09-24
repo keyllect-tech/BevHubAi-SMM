@@ -348,7 +348,11 @@ export function CreateVideoPage() {
                     {LANGUAGES.map((l) => (
                       <button
                         key={l.id}
-                        onClick={() => setLanguage(l.id)}
+                        onClick={() => {
+                          setLanguage(l.id);
+                          // Only English has a male voice.
+                          if (l.id !== 'en') setVoiceType('female');
+                        }}
                         className={`p-3 sm:p-4 rounded-lg border text-center transition-colors ${
                           language === l.id ? 'border-accent bg-accent/10' : 'border-border-default hover:border-accent/30'
                         }`}
@@ -367,7 +371,9 @@ export function CreateVideoPage() {
                       <button
                         key={v.id}
                         onClick={() => setVoiceType(v.id)}
-                        className={`p-4 rounded-lg border text-left transition-colors ${
+                        disabled={v.id === 'male' && language !== 'en'}
+                        title={v.id === 'male' && language !== 'en' ? 'Мужской голос доступен только для английского' : undefined}
+                        className={`p-4 rounded-lg border text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                           voiceType === v.id ? 'border-accent bg-accent/10' : 'border-border-default hover:border-accent/30'
                         }`}
                       >

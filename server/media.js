@@ -153,13 +153,19 @@ export async function validateImageDecodes(filePath, mimeType) {
 }
 
 // ── AI Script Generation ──────────────────────────────────────────────────────
-// After an auth/quota rejection there is no point calling OpenAI on every request: it only adds
-// latency to each generation. Back off and use the local generator meanwhile.
+// After the key is rejected (auth error or exhausted credits) there is no point calling OpenAI on
+// every request: it only adds latency. Back off and use the local generator meanwhile.
 let openaiPausedUntil = 0;
 const OPENAI_BACKOFF_MS = 30 * 60 * 1000;
+const OPENAI_RATE_LIMIT_BACKOFF_MS = 60 * 1000;
+
+/** True when a script request would actually call (and bill) OpenAI. */
+export function isOpenAIActive() {
+  return Boolean(process.env.OPENAI_API_KEY) && Date.now() >= openaiPausedUntil;
+}
 
 export async function generateAIScript({ productName, description, cta, language, style }) {
-  const apiKey = process.env.OPENAI_API_KEY && Date.now() >= openaiPausedUntil ? process.env.OPENAI_API_KEY : null;
+  const apiKey = isOpenAIActive() ? process.env.OPENAI_API_KEY : null;
   const langLabel = LANGUAGES[language];
 
   if (apiKey) {
@@ -184,9 +190,17 @@ Rules: every field in ${langLabel}; punchy; each field under 60 characters; do N
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        if ([401, 403, 429].includes(res.status)) {
+        const errType = data?.error?.type || data?.error?.code;
+        const keyUnusable =
+          res.status === 401 || res.status === 403 || ['insufficient_quota', 'credit_balance_exhausted'].includes(errType) ||
+          data?.error?.code === 'credit_balance_exhausted';
+        if (keyUnusable) {
           openaiPausedUntil = Date.now() + OPENAI_BACKOFF_MS;
-          console.warn(`[AI SCRIPT] OpenAI rejected the key (HTTP ${res.status}) — using the local generator for the next 30 minutes`);
+          console.warn(`[AI SCRIPT] OpenAI key unusable (HTTP ${res.status}) — using the local generator for the next 30 minutes`);
+        } else if (res.status === 429) {
+          // Plain rate limit: brief pause, honouring Retry-After when present.
+          const retryAfterMs = Number(res.headers.get('retry-after')) * 1000;
+          openaiPausedUntil = Date.now() + (retryAfterMs > 0 ? Math.min(retryAfterMs, 5 * 60 * 1000) : OPENAI_RATE_LIMIT_BACKOFF_MS);
         }
         throw new Error(`OpenAI HTTP ${res.status}: ${data?.error?.message || 'unknown error'}`);
       }
@@ -210,39 +224,40 @@ Rules: every field in ${langLabel}; punchy; each field under 60 characters; do N
 }
 
 // Local script generator: works with no API key at all, and offers a different phrasing each run
-// so "another variant" in the UI actually produces something new.
+// so "another variant" in the UI actually produces something new. Phrases are deliberately generic:
+// no invented facts, reviews or social proof ("thousands already bought") in someone's ad.
 const TEMPLATES = {
   ru: {
     hooks: {
-      product: ['Знакомьтесь — {name}', '{name}: то, что вы искали', 'Вот почему все говорят про {name}'],
+      product: ['Знакомьтесь — {name}', '{name}: то, что вы искали', 'Встречайте {name}'],
       dynamic: ['Стоп! {name} меняет всё', 'Только посмотрите на {name}', 'Три секунды — и вы захотите {name}'],
       premium: ['{name}. Создано для лучших', '{name} — когда выбираешь лучшее', 'Премиум в каждой детали: {name}'],
-      ugc: ['Не верил, пока не попробовал {name}', 'Взял {name} — и не пожалел', 'Честно про {name} после месяца'],
+      ugc: ['Смотрите, что я нашёл: {name}', 'Вот почему стоит присмотреться к {name}', '{name} — без фильтров'],
     },
-    benefits: ['Превосходное качество', 'Продумана каждая деталь', 'Работает так, как обещали'],
-    closers: ['Для тех, кто выбирает лучшее', 'Уже выбрали тысячи', 'Попробуйте — и почувствуете разницу'],
+    benefits: ['Продумана каждая деталь', 'Стиль и удобство в одном', 'Создано с вниманием к деталям'],
+    closers: ['Для тех, кто выбирает лучшее', 'Попробуйте сами', 'Узнайте больше прямо сейчас'],
     cta: 'Закажите сейчас',
   },
   uz: {
     hooks: {
-      product: ['{name} — siz kutgan narsa', '{name}: aynan sizga kerak', 'Nega hamma {name} haqida gapiradi'],
+      product: ['{name} — siz kutgan narsa', '{name}: aynan sizga kerak', 'Tanishing: {name}'],
       dynamic: ['Toʻxtang! {name} hammasini oʻzgartiradi', '{name}ga bir qarang', 'Uch soniya — va {name} sizniki'],
       premium: ['{name}. Eng yaxshilar uchun', '{name} — eng yaxshisini tanlaganlarga', 'Har bir detalda premium: {name}'],
-      ugc: ['{name}ni sinab koʻrgunimcha ishonmadim', '{name}ni oldim — afsuslanmadim', 'Bir oydan keyin {name} haqida rostini aytaman'],
+      ugc: ['Qarang, nima topdim: {name}', 'Nega {name}ga eʼtibor berish kerak', '{name} — filtrsiz'],
     },
-    benefits: ['Ajoyib sifat', 'Har bir detal oʻylangan', 'Vada qilinganidek ishlaydi'],
-    closers: ['Eng yaxshisini tanlaganlar uchun', 'Minglab odam tanladi', 'Sinab koʻring — farqini sezasiz'],
+    benefits: ['Har bir detal oʻylangan', 'Uslub va qulaylik birgalikda', 'Eʼtibor bilan yaratilgan'],
+    closers: ['Eng yaxshisini tanlaganlar uchun', 'Oʻzingiz sinab koʻring', 'Batafsil hoziroq bilib oling'],
     cta: 'Hozir buyurtma qiling',
   },
   en: {
     hooks: {
-      product: ['Meet {name}', '{name}: exactly what you were looking for', "Here's why everyone talks about {name}"],
+      product: ['Meet {name}', '{name}: exactly what you were looking for', 'Introducing {name}'],
       dynamic: ['Stop scrolling. {name} changes everything', 'Just look at {name}', 'Three seconds and you will want {name}'],
       premium: ['{name}. Crafted for those who expect more', '{name} — when only the best will do', 'Premium in every detail: {name}'],
-      ugc: ["I can't believe I waited this long for {name}", 'I bought {name} and never looked back', 'Honest thoughts on {name} after a month'],
+      ugc: ['Look what I found: {name}', "Here's why {name} is worth a look", '{name}, no filter'],
     },
-    benefits: ['Premium quality', 'Every detail considered', 'Does exactly what it promises'],
-    closers: ['For those who choose the best', 'Thousands already switched', 'Try it and feel the difference'],
+    benefits: ['Every detail considered', 'Style and comfort in one', 'Made with attention to detail'],
+    closers: ['For those who choose the best', 'See it for yourself', 'Find out more today'],
     cta: 'Order now',
   },
 };
@@ -272,61 +287,84 @@ function generateFallbackScript({ productName, description, cta, language, style
   const t = TEMPLATES[language];
   const [first, second] = splitDescription(description);
   return {
-    hook: shorten(pick(t.hooks[style] || t.hooks.dynamic).replace('{name}', productName), 90),
+    // Function replacer: a product name containing "$&" or "$$" must be inserted literally.
+    hook: shorten(pick(t.hooks[style] || t.hooks.dynamic).replace('{name}', () => productName), 90),
     benefit1: shorten(first || pick(t.benefits), 90),
     benefit2: shorten(second || pick(t.closers), 90),
     cta: shorten(cta || t.cta, 60),
   };
 }
 
-// ── Voice (Google Translate TTS, no API key) ──────────────────────────────────
+// ── Voice (no API key needed) ─────────────────────────────────────────────────
 function probeDuration(filePath) {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(filePath, (err, data) => (err ? reject(err) : resolve(Number(data.format.duration) || 0)));
   });
 }
 
-const TTS_ATTEMPTS = 2;
-const TTS_TIMEOUT_MS = 10000;
-// auto = online voice when reachable, offline voice otherwise; local = always offline; google = online only.
+// auto = online voice when reachable, offline Windows voice otherwise; local = always offline;
+// google = online only.
 const TTS_PROVIDER = (process.env.TTS_PROVIDER || 'auto').toLowerCase();
+const ONLINE_TTS_TIMEOUT_MS = 8000;
+const ONLINE_TTS_ATTEMPTS = TTS_PROVIDER === 'google' ? 3 : 1;
+// After the online voice fails, skip it for a while so each video doesn't wait for a timeout first.
+const ONLINE_TTS_PAUSE_MS = 5 * 60 * 1000;
+let onlineTtsPausedUntil = 0;
 
-// Offline Windows voices (SAPI). No API key, no network — the safety net for demos.
-const SAPI_VOICES = {
-  ru: { female: 'Microsoft Irina Desktop', male: 'Microsoft Irina Desktop' },
-  uz: { female: 'Microsoft Irina Desktop', male: 'Microsoft Irina Desktop' },
-  en: { female: 'Microsoft Zira Desktop', male: 'Microsoft David Desktop' },
+// Offline Windows voices (SAPI). Preferred voice per language/gender; any installed voice of the
+// same culture is accepted as a substitute, but never a voice of another language.
+const SAPI = {
+  ru: { culture: 'ru-RU', female: 'Microsoft Irina Desktop', male: null },
+  uz: { culture: 'ru-RU', female: 'Microsoft Irina Desktop', male: null },
+  en: { culture: 'en-US', female: 'Microsoft Zira Desktop', male: 'Microsoft David Desktop' },
 };
+
+/** Only English has a male voice (offline David); the online voice is female-only. */
+export function maleVoiceAvailable(language) {
+  return language === 'en' && process.platform === 'win32' && TTS_PROVIDER !== 'google';
+}
+
+// PowerShell single-quoted literal: forward slashes, and ' doubled (paths like C:\Users\O'Brien).
+const psString = (s) => `'${String(s).replace(/\\/g, '/').replace(/'/g, "''")}'`;
 
 async function localSpeech(text, language, voiceType, workDir) {
   if (process.platform !== 'win32') throw new Error('offline voice is only available on Windows');
-  const voice = SAPI_VOICES[language]?.[voiceType === 'male' ? 'male' : 'female'] || SAPI_VOICES.ru.female;
+  const cfg = SAPI[language] || SAPI.ru;
+  const male = voiceType === 'male' && Boolean(cfg.male);
+  const preferred = male ? cfg.male : cfg.female;
   const textPath = path.join(workDir, 'voice-text.txt');
   const wavPath = path.join(workDir, 'voice.wav');
   fs.writeFileSync(textPath, text, 'utf8');
 
+  // A voice of the right language is mandatory: an English voice reading Cyrillic produces garbage.
   const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Speech
 $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-try { $synth.SelectVoice('${voice}') } catch { }
+$voices = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
+$voice = $voices | Where-Object { $_.Name -eq ${psString(preferred)} } | Select-Object -First 1
+if (-not $voice) { $voice = $voices | Where-Object { $_.Culture.Name -eq ${psString(cfg.culture)} -and "$($_.Gender)" -eq ${psString(male ? 'Male' : 'Female')} } | Select-Object -First 1 }
+if (-not $voice) { $voice = $voices | Where-Object { $_.Culture.Name -eq ${psString(cfg.culture)} } | Select-Object -First 1 }
+if (-not $voice) { throw ${psString(`No ${cfg.culture} voice installed in Windows`)} }
+$synth.SelectVoice($voice.Name)
 $synth.Rate = 1
-$synth.SetOutputToWaveFile([string]'${wavPath.replace(/\\/g, '/')}')
-$synth.Speak([IO.File]::ReadAllText([string]'${textPath.replace(/\\/g, '/')}', [Text.Encoding]::UTF8))
+$synth.SetOutputToWaveFile(${psString(wavPath)})
+$synth.Speak([IO.File]::ReadAllText(${psString(textPath)}, [Text.Encoding]::UTF8))
 $synth.Dispose()
+Write-Output $voice.Name
 `;
-  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 60000 });
+  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 60000 });
   if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size < 1000) throw new Error('offline voice produced no audio');
-  return wavPath;
+  return { path: wavPath, voice: stdout.trim() };
 }
 
 async function googleSpeech(text, language, workDir) {
   // Google TTS has no Uzbek voice — Uzbek Latin text is read with the Russian voice.
   const lang = language === 'en' ? 'en' : 'ru';
   let lastError;
-  for (let attempt = 1; attempt <= TTS_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= ONLINE_TTS_ATTEMPTS; attempt++) {
     try {
-      const parts = await googleTTS.getAllAudioBase64(text, { lang, slow: false, timeout: TTS_TIMEOUT_MS, splitPunct: ',.!?' });
+      const parts = await googleTTS.getAllAudioBase64(text, { lang, slow: false, timeout: ONLINE_TTS_TIMEOUT_MS, splitPunct: ',.!?' });
       const buffer = Buffer.concat(parts.map((p) => Buffer.from(p.base64, 'base64')));
       if (buffer.length < 1000) throw new Error('empty response');
       const audioPath = path.join(workDir, 'voice.mp3');
@@ -334,7 +372,7 @@ async function googleSpeech(text, language, workDir) {
       return audioPath;
     } catch (err) {
       lastError = err;
-      if (attempt < TTS_ATTEMPTS) await new Promise((r) => setTimeout(r, 1000));
+      if (attempt < ONLINE_TTS_ATTEMPTS) await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
   }
   throw lastError;
@@ -343,8 +381,11 @@ async function googleSpeech(text, language, workDir) {
 export async function generateSpeech(script, language, voiceType, workDir) {
   const text = [script.hook, script.benefit1, script.benefit2, script.cta].map((s) => s.replace(/[.!?…]+$/, '')).join('. ');
   const uzNote = language === 'uz' ? '-ru-voice' : '';
+  // The online voice is female-only, so a requested male English voice goes straight to the offline one.
+  const needsOfflineVoice = voiceType === 'male' && maleVoiceAvailable(language);
+  const tryOnline = TTS_PROVIDER === 'google' || (TTS_PROVIDER === 'auto' && !needsOfflineVoice && Date.now() >= onlineTtsPausedUntil);
 
-  if (TTS_PROVIDER !== 'local') {
+  if (tryOnline) {
     try {
       const audioPath = await googleSpeech(text, language, workDir);
       return { path: audioPath, duration: await probeDuration(audioPath), kind: `tts-online${uzNote}` };
@@ -353,12 +394,14 @@ export async function generateSpeech(script, language, voiceType, workDir) {
         console.error('[TTS] online voice failed, using silent audio track:', err.message);
         return { path: null, duration: 0, kind: 'silence' };
       }
-      console.warn('[TTS] online voice unavailable, switching to the offline voice:', err.message);
+      onlineTtsPausedUntil = Date.now() + ONLINE_TTS_PAUSE_MS;
+      console.warn('[TTS] online voice unavailable — using the offline voice for the next 5 minutes:', err.message);
     }
   }
 
   try {
-    const wavPath = await localSpeech(text, language, voiceType, workDir);
+    const { path: wavPath, voice } = await localSpeech(text, language, voiceType, workDir);
+    console.log(`[TTS] offline voice: ${voice}`);
     return { path: wavPath, duration: await probeDuration(wavPath), kind: `tts-offline${uzNote}` };
   } catch (err) {
     console.error('[TTS] offline voice failed, using silent audio track:', err.message);

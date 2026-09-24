@@ -31,8 +31,23 @@ const AUDIO_LABELS: Record<string, string> = {
   'tts-online-ru-voice': 'AI-озвучка (онлайн, русский голос)',
   'tts-offline': 'AI-озвучка (офлайн)',
   'tts-offline-ru-voice': 'AI-озвучка (офлайн, русский голос)',
+  // Values written by earlier versions.
+  tts: 'AI-озвучка (онлайн)',
+  'tts-ru-voice': 'AI-озвучка (онлайн, русский голос)',
   silence: 'Без озвучки',
 };
+
+// The server reports steps by stable English ids; show them in Russian like the rest of the page.
+const STEP_LABELS: Record<string, string> = {
+  Queued: 'В очереди',
+  'Analyzing product': 'Анализ товара',
+  'Writing script': 'Пишем сценарий',
+  'Generating voice': 'Озвучка',
+  'Creating video': 'Монтаж видео',
+  'Adding subtitles': 'Субтитры',
+  Finalizing: 'Финализация',
+};
+const stepLabel = (step: string) => STEP_LABELS[step] || step;
 
 export function VideoDetailPage() {
   const { id = '' } = useParams();
@@ -189,7 +204,7 @@ export function VideoDetailPage() {
               <Loader2 size={32} className="text-accent animate-spin" />
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">AI создаёт ваше видео...</h2>
-            <p className="text-muted">{job?.current_step || 'Queued'}</p>
+            <p className="text-muted">{stepLabel(job?.current_step || 'Queued')}</p>
           </div>
 
           {connectionLost && (
@@ -224,7 +239,7 @@ export function VideoDetailPage() {
                     ) : (
                       <Circle size={20} className="text-muted/40 shrink-0" />
                     )}
-                    <span className={`text-sm ${isDone ? 'text-white' : isActive ? 'text-accent' : 'text-muted/50'}`}>{stepName}</span>
+                    <span className={`text-sm ${isDone ? 'text-white' : isActive ? 'text-accent' : 'text-muted/50'}`}>{stepLabel(stepName)}</span>
                   </div>
                 );
               })}
