@@ -13,6 +13,7 @@ dist-ssr
 
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -41,3 +42,6 @@ data/
 
 # Local test-data backups
 _testdata_backup_*/
+
+# TypeScript incremental build info
+*.tsbuildinfo
