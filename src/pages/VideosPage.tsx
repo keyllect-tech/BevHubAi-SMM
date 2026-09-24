@@ -44,7 +44,7 @@ export function VideosPage() {
   };
 
   return (
-    <AppLayout title="My Videos">
+    <AppLayout title="Мои видео">
       <div className="flex items-center justify-between mb-6">
         <div className="flex gap-2 overflow-x-auto">
           {FILTERS.map((f) => (

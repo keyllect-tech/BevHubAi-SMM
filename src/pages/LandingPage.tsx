@@ -30,7 +30,7 @@ export function LandingPage() {
     },
     {
       q: 'Нужны ли технические знания?',
-      a: 'Нет. Интерфейс построен как простой wizard из 5 шагов. Никакого монтажа, никакого сложного софта — только описание товара и фотографии.',
+      a: 'Нет. Интерфейс построен как простой мастер из 5 шагов. Никакого монтажа, никакого сложного софта — только описание товара и фотографии.',
     },
     {
       q: 'Какие языки поддерживаются?',
@@ -87,7 +87,7 @@ export function LandingPage() {
         <div className="max-w-4xl mx-auto text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass mb-6 animate-fade-in">
             <Sparkles size={14} className="text-accent" />
-            <span className="text-xs text-white/80">AI-powered video creation</span>
+            <span className="text-xs text-white/80">AI-генерация рекламных видео</span>
           </div>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight mb-6 animate-slide-up">
             Создавайте рекламные видео<br />
@@ -118,7 +118,7 @@ export function LandingPage() {
               <div className="h-12 w-12 mx-auto rounded-lg bg-bg-elevated flex items-center justify-center mb-3">
                 <FileText size={24} className="text-accent" />
               </div>
-              <p className="text-xs sm:text-sm text-white font-medium">INPUT</p>
+              <p className="text-xs sm:text-sm text-white font-medium">ДАННЫЕ</p>
               <p className="text-xs text-muted mt-1 hidden sm:block">Описание + фото</p>
             </div>
             <div className="glass rounded-xl p-4 sm:p-6 text-center relative">
@@ -132,7 +132,7 @@ export function LandingPage() {
               <div className="h-12 w-12 mx-auto rounded-lg bg-bg-elevated flex items-center justify-center mb-3">
                 <Film size={24} className="text-accent" />
               </div>
-              <p className="text-xs sm:text-sm text-white font-medium">VIDEO</p>
+              <p className="text-xs sm:text-sm text-white font-medium">ВИДЕО</p>
               <p className="text-xs text-muted mt-1 hidden sm:block">Готовый MP4</p>
             </div>
           </div>
@@ -303,10 +303,10 @@ export function LandingPage() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { title: 'Smart Watch', style: 'Dynamic', img: 'https://images.pexels.com/photos/6373077/pexels-photo-6373077.jpeg?auto=compress&cs=tinysrgb&h=650&w=940' },
-              { title: 'Smartphone Pro', style: 'Premium', img: 'https://images.pexels.com/photos/23990653/pexels-photo-23990653.jpeg?auto=compress&cs=tinysrgb&h=650&w=940' },
-              { title: 'Tech Bundle', style: 'Product Ad', img: 'https://images.pexels.com/photos/11216259/pexels-photo-11216259.jpeg?auto=compress&cs=tinysrgb&h=650&w=940' },
-              { title: 'Latest Device', style: 'UGC', img: 'https://images.pexels.com/photos/30353224/pexels-photo-30353224.jpeg?auto=compress&cs=tinysrgb&h=650&w=940' },
+              { title: 'Smart Watch', style: 'Динамичный', img: '/examples/smart-watch.jpg' },
+              { title: 'Smartphone Pro', style: 'Премиум', img: '/examples/smartphone.jpg' },
+              { title: 'Tech Bundle', style: 'Реклама товара', img: '/examples/tech-bundle.jpg' },
+              { title: 'Latest Device', style: 'UGC', img: '/examples/device.jpg' },
             ].map((ex) => (
               <div key={ex.title} className="group cursor-pointer">
                 <div className="relative aspect-[9/16] rounded-xl overflow-hidden bg-bg-elevated mb-3">
@@ -353,16 +353,16 @@ export function LandingPage() {
                 <h3 className="text-xl font-bold text-white mb-1">{plan.name}</h3>
                 <p className="text-3xl font-bold text-white mb-1">
                   ${plan.price}
-                  <span className="text-sm font-normal text-muted">/month</span>
+                  <span className="text-sm font-normal text-muted">/мес</span>
                 </p>
-                <p className="text-sm text-muted mb-5">{plan.monthly_limit} videos / month</p>
+                <p className="text-sm text-muted mb-5">{plan.monthly_limit} видео в месяц</p>
                 <ul className="space-y-2 mb-6">
                   {[
-                    `${plan.monthly_limit} videos per month`,
-                    'AI script generation',
-                    'Auto subtitles',
-                    'All video styles',
-                    'AI voiceover: RU, UZ, EN',
+                    `${plan.monthly_limit} видео в месяц`,
+                    'AI-сценарии',
+                    'Автоматические субтитры',
+                    'Все стили видео',
+                    'AI-озвучка: RU, UZ, EN',
                   ].map((feat) => (
                     <li key={feat} className="flex items-center gap-2 text-sm text-white/80">
                       <Check size={15} className="text-accent shrink-0" />
@@ -444,7 +444,7 @@ export function LandingPage() {
               <span className="text-white font-semibold">BevHubAI</span>
             </div>
             <p className="text-sm text-muted">
-              © 2026 BevHubAI. AI-powered video creation.
+              © 2026 BevHubAI. AI-генерация рекламных видео.
             </p>
             <div className="flex items-center gap-4">
               <a href="#how" className="text-sm text-muted hover:text-white transition-colors">Как работает</a>

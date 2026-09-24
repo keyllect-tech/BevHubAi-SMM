@@ -79,12 +79,12 @@ export function ProjectsPage() {
   };
 
   return (
-    <AppLayout title="Projects">
+    <AppLayout title="Проекты">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <p className="text-muted text-sm">Управляйте вашими рекламными проектами</p>
         <Button onClick={openCreate}>
           <Plus size={18} />
-          New Project
+          Новый проект
         </Button>
       </div>
 

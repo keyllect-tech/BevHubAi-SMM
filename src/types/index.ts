@@ -111,9 +111,9 @@ export const GENERATION_STEPS = [
 ] as const;
 
 export const VIDEO_STYLES = [
-  { id: 'product', name: 'Product Ad', desc: 'Чистая рекламная подача' },
-  { id: 'dynamic', name: 'Dynamic', desc: 'Быстрый TikTok/Reels стиль' },
-  { id: 'premium', name: 'Premium', desc: 'Премиальный рекламный ролик' },
+  { id: 'product', name: 'Реклама товара', desc: 'Чистая рекламная подача' },
+  { id: 'dynamic', name: 'Динамичный', desc: 'Быстрый TikTok/Reels стиль' },
+  { id: 'premium', name: 'Премиум', desc: 'Премиальный рекламный ролик' },
   { id: 'ugc', name: 'UGC', desc: 'Стиль пользовательского контента' },
 ] as const;
 

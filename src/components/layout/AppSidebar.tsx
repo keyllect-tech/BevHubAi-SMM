@@ -13,13 +13,13 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/projects', label: 'Projects', icon: FolderKanban },
-  { to: '/create', label: 'Create Video', icon: PlusCircle },
-  { to: '/videos', label: 'My Videos', icon: VideoIcon },
-  { to: '/brand-kit', label: 'Brand Kit', icon: Palette },
-  { to: '/billing', label: 'Billing', icon: CreditCard },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/dashboard', label: 'Главная', icon: LayoutDashboard },
+  { to: '/projects', label: 'Проекты', icon: FolderKanban },
+  { to: '/create', label: 'Создать видео', icon: PlusCircle },
+  { to: '/videos', label: 'Мои видео', icon: VideoIcon },
+  { to: '/brand-kit', label: 'Бренд-кит', icon: Palette },
+  { to: '/billing', label: 'Тарифы', icon: CreditCard },
+  { to: '/settings', label: 'Настройки', icon: Settings },
 ];
 
 function useSignOut() {

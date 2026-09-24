@@ -27,13 +27,13 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div style={{ padding: '20px', fontFamily: 'system-ui, sans-serif', color: 'white', backgroundColor: '#121212', minHeight: '100vh' }}>
-          <h2>BevHubAI failed to load</h2>
+          <h2>Не удалось загрузить BevHubAI</h2>
           <p style={{ color: '#ff5555' }}>{this.state.error?.message || 'Unknown error'}</p>
           <button 
             onClick={() => window.location.reload()}
             style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '16px' }}
           >
-            Try again
+            Обновить страницу
           </button>
         </div>
       );

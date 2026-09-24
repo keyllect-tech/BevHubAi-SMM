@@ -18,9 +18,9 @@ export function AppTopbar({ title, children }: { title: string; children?: React
           >
             <Bell size={18} />
           </button>
-          <Button size="md" onClick={() => navigate('/create')} aria-label="Create New Video">
+          <Button size="md" onClick={() => navigate('/create')} aria-label="Создать видео">
             <PlusCircle size={18} />
-            <span className="hidden sm:inline">Create New Video</span>
+            <span className="hidden sm:inline">Создать видео</span>
           </Button>
         </div>
       </div>

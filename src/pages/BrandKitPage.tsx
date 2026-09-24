@@ -107,7 +107,7 @@ export function BrandKitPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Brand Kit">
+      <AppLayout title="Бренд-кит">
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
@@ -119,7 +119,7 @@ export function BrandKitPage() {
     'w-full h-10 px-3.5 rounded-lg bg-bg-elevated border border-border-default text-white focus:outline-none focus:border-accent/50 transition-colors';
 
   return (
-    <AppLayout title="Brand Kit">
+    <AppLayout title="Бренд-кит">
       <div className="max-w-2xl mx-auto">
         <p className="text-muted text-sm mb-6">Настройте бренд для каждого проекта</p>
 
@@ -168,8 +168,8 @@ export function BrandKitPage() {
                   <Input label="Название бренда" placeholder="Nike, Dunya Jewellery..." value={brandName} onChange={(e) => setBrandName(e.target.value)} />
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <ColorField label="Primary color" value={primaryColor} onChange={setPrimaryColor} />
-                    <ColorField label="Secondary color" value={secondaryColor} onChange={setSecondaryColor} />
+                    <ColorField label="Основной цвет" value={primaryColor} onChange={setPrimaryColor} />
+                    <ColorField label="Дополнительный цвет" value={secondaryColor} onChange={setSecondaryColor} />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

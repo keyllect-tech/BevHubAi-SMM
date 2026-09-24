@@ -56,7 +56,7 @@ export function BillingPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Billing">
+      <AppLayout title="Тарифы">
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
@@ -65,14 +65,14 @@ export function BillingPage() {
   }
 
   return (
-    <AppLayout title="Billing">
+    <AppLayout title="Тарифы">
       <div className="max-w-4xl mx-auto">
         <Card className="mb-6">
           <h2 className="text-lg font-semibold text-white mb-1">Использование</h2>
           <p className="text-muted text-sm mb-5">Текущий месяц</p>
 
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-white">Videos used</span>
+            <span className="text-sm text-white">Использовано видео</span>
             <span className="text-sm font-medium text-white">
               {videosUsed} / {limit}
             </span>
@@ -100,7 +100,7 @@ export function BillingPage() {
               <Card key={plan.id} className={`relative ${isCurrent ? 'border-accent/40 accent-glow' : ''}`}>
                 {isCurrent && (
                   <div className="absolute -top-2 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-accent text-bg text-xs font-semibold">
-                    Current
+                    Текущий
                   </div>
                 )}
                 <div className="flex items-center gap-2 mb-3">
@@ -111,17 +111,17 @@ export function BillingPage() {
                 </div>
                 <p className="text-3xl font-bold text-white mb-1">
                   ${plan.price}
-                  <span className="text-sm font-normal text-muted">/month</span>
+                  <span className="text-sm font-normal text-muted">/мес</span>
                 </p>
-                <p className="text-sm text-muted mb-4">{plan.monthly_limit} videos / month</p>
+                <p className="text-sm text-muted mb-4">{plan.monthly_limit} видео в месяц</p>
 
                 <ul className="space-y-2 mb-5">
                   {[
-                    `${plan.monthly_limit} videos per month`,
-                    'AI script generation',
-                    'Auto subtitles',
-                    '1080×1920 vertical format',
-                    plan.id === 'agency' ? 'Priority support' : 'Community support',
+                    `${plan.monthly_limit} видео в месяц`,
+                    'AI-сценарии',
+                    'Автоматические субтитры',
+                    'Вертикальный формат 1080×1920',
+                    plan.id === 'agency' ? 'Приоритетная поддержка' : 'Поддержка по email',
                   ].map((feat) => (
                     <li key={feat} className="flex items-center gap-2 text-sm text-white/80">
                       <Check size={15} className="text-accent shrink-0" />
@@ -137,7 +137,7 @@ export function BillingPage() {
                   loading={changingTo === plan.id}
                   onClick={() => handleUpgrade(plan.id)}
                 >
-                  {isCurrent ? 'Current plan' : 'Switch'}
+                  {isCurrent ? 'Текущий тариф' : 'Выбрать'}
                 </Button>
               </Card>
             );

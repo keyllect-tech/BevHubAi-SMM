@@ -48,7 +48,7 @@ export function DashboardPage() {
   ];
 
   return (
-    <AppLayout title="Dashboard">
+    <AppLayout title="Главная">
       {error && (
         <div role="alert" className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20">
           <AlertCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
@@ -83,7 +83,7 @@ export function DashboardPage() {
       </div>
 
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Recent Videos</h2>
+        <h2 className="text-lg font-semibold text-white">Последние видео</h2>
         <Link to="/videos" className="text-sm text-accent hover:underline">
           Все видео →
         </Link>
@@ -143,7 +143,7 @@ export function DashboardPage() {
                   {video.status === 'failed' && (
                     <span className="text-xs text-red-400 flex items-center gap-1">
                       <AlertCircle size={12} />
-                      Error
+                      Ошибка
                     </span>
                   )}
                 </div>

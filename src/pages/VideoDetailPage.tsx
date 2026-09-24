@@ -163,7 +163,7 @@ export function VideoDetailPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Video">
+      <AppLayout title="Видео">
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
@@ -173,7 +173,7 @@ export function VideoDetailPage() {
 
   if (notFound || loadError || !video) {
     return (
-      <AppLayout title="Video">
+      <AppLayout title="Видео">
         <Card className="text-center py-12">
           <AlertCircle size={40} className="text-muted mx-auto mb-3" />
           <p className="text-white font-medium mb-1">{notFound ? 'Видео не найдено' : 'Не удалось загрузить видео'}</p>
@@ -198,7 +198,7 @@ export function VideoDetailPage() {
     const stepIdx = Math.max(0, GENERATION_STEPS.indexOf((job?.current_step || 'Queued') as (typeof GENERATION_STEPS)[number]));
     const progress = job?.progress ?? 0;
     return (
-      <AppLayout title="Generating Video">
+      <AppLayout title="Генерация видео">
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-8">
             <div className="inline-flex h-16 w-16 rounded-full bg-accent/10 items-center justify-center mb-4 animate-pulse-glow">
@@ -253,13 +253,13 @@ export function VideoDetailPage() {
 
   if (video.status === 'failed') {
     return (
-      <AppLayout title="Generation Failed">
+      <AppLayout title="Ошибка генерации">
         <div className="max-w-2xl mx-auto">
           <Card className="text-center py-12">
             <div className="inline-flex h-16 w-16 rounded-full bg-red-500/10 items-center justify-center mb-4">
               <AlertCircle size={32} className="text-red-400" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Generation failed</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Не удалось создать видео</h2>
             <p className="text-muted text-sm mb-6 break-words">{video.error_message || 'Произошла ошибка при генерации видео'}</p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Button onClick={handleRetry} loading={retrying}>
@@ -310,15 +310,15 @@ export function VideoDetailPage() {
               <div className="flex flex-wrap items-center gap-3 mt-4">
                 <Button onClick={handleDownload} disabled={!video.video_url} loading={downloading}>
                   {!downloading && <Download size={18} />}
-                  Download MP4
+                  Скачать MP4
                 </Button>
                 <Button variant="secondary" onClick={() => navigate('/create')}>
                   <Edit3 size={18} />
-                  Create another
+                  Создать ещё
                 </Button>
                 <Button variant="ghost" onClick={handleRetry} loading={retrying}>
                   <RefreshCw size={18} />
-                  Regenerate
+                  Пересоздать
                 </Button>
               </div>
             </Card>
@@ -332,7 +332,7 @@ export function VideoDetailPage() {
                 <DetailRow icon={Mic} label="Озвучка" value={AUDIO_LABELS[video.audio_kind] || video.voice_type} />
                 <DetailRow icon={Film} label="Стиль" value={VIDEO_STYLES.find((s) => s.id === video.style)?.name || video.style} />
                 <DetailRow icon={Clock} label="Длительность" value={`${video.duration_sec}s`} />
-                <DetailRow icon={Globe} label="CTA" value={video.cta} />
+                <DetailRow icon={Globe} label="Призыв" value={video.cta} />
               </div>
             </Card>
 
@@ -343,10 +343,10 @@ export function VideoDetailPage() {
                   {video.script_source === 'openai' ? 'OpenAI' : video.script_source === 'fallback' ? 'BevHub Engine' : 'Пользовательский'}
                 </p>
                 <div className="space-y-3">
-                  {video.script_hook && <ScriptBlock label="HOOK" text={video.script_hook} />}
-                  {benefit1 && <ScriptBlock label="BENEFIT 1" text={benefit1} />}
-                  {benefit2 && <ScriptBlock label="BENEFIT 2" text={benefit2} />}
-                  {video.script_cta && <ScriptBlock label="CTA" text={video.script_cta} />}
+                  {video.script_hook && <ScriptBlock label="Хук" text={video.script_hook} />}
+                  {benefit1 && <ScriptBlock label="Преимущество 1" text={benefit1} />}
+                  {benefit2 && <ScriptBlock label="Преимущество 2" text={benefit2} />}
+                  {video.script_cta && <ScriptBlock label="Призыв к действию" text={video.script_cta} />}
                 </div>
               </Card>
             )}

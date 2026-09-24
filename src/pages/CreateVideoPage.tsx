@@ -19,11 +19,11 @@ interface UploadedImage {
 type ScriptData = VideoScript & { source: 'openai' | 'fallback' };
 
 const STEPS = [
-  { id: 0, label: 'Product', icon: Package },
-  { id: 1, label: 'Media', icon: ImageIcon },
-  { id: 2, label: 'Voice', icon: Mic },
-  { id: 3, label: 'Style', icon: Film },
-  { id: 4, label: 'Generate', icon: Rocket },
+  { id: 0, label: 'Товар', icon: Package },
+  { id: 1, label: 'Фото', icon: ImageIcon },
+  { id: 2, label: 'Голос', icon: Mic },
+  { id: 3, label: 'Стиль', icon: Film },
+  { id: 4, label: 'Запуск', icon: Rocket },
 ];
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -188,7 +188,7 @@ export function CreateVideoPage() {
   };
 
   return (
-    <AppLayout title="Create Video">
+    <AppLayout title="Создание видео">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           {STEPS.map((s, i) => {
@@ -238,10 +238,10 @@ export function CreateVideoPage() {
                   hint="Чем подробнее описание, тем лучше сценарий"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input label="Цена (optional)" placeholder="29 999 сум" maxLength={50} value={price} onChange={(e) => setPrice(e.target.value)} />
+                  <Input label="Цена (необязательно)" placeholder="29 999 сум" maxLength={50} value={price} onChange={(e) => setPrice(e.target.value)} />
                   <div>
                     <Input
-                      label="CTA (призыв к действию)"
+                      label="Призыв к действию"
                       placeholder="Закажите сейчас"
                       list="cta-options"
                       maxLength={60}
@@ -256,7 +256,7 @@ export function CreateVideoPage() {
                   </div>
                 </div>
                 <Input
-                  label="Website URL (optional)"
+                  label="Сайт (необязательно)"
                   placeholder="https://example.com"
                   maxLength={300}
                   value={websiteUrl}
@@ -264,7 +264,7 @@ export function CreateVideoPage() {
                 />
                 {projects.length > 0 && (
                   <div className="space-y-1.5">
-                    <label className="block text-sm font-medium text-white/90">Проект (optional)</label>
+                    <label className="block text-sm font-medium text-white/90">Проект (необязательно)</label>
                     <select
                       value={projectId}
                       onChange={(e) => setProjectId(e.target.value)}
@@ -455,10 +455,10 @@ export function CreateVideoPage() {
                   <p className="text-xs text-muted mb-2">
                     {scriptData.source === 'openai' ? 'Сгенерировано OpenAI' : 'Сгенерировано BevHub Engine'}
                   </p>
-                  <ScriptLine label="0–3s HOOK" value={scriptData.hook} />
-                  <ScriptLine label="3–8s" value={scriptData.benefit1} />
-                  <ScriptLine label="8–12s" value={scriptData.benefit2} />
-                  <ScriptLine label="12–15s CTA" value={scriptData.cta} />
+                  <ScriptLine label="0–3 с · хук" value={scriptData.hook} />
+                  <ScriptLine label="3–8 с" value={scriptData.benefit1} />
+                  <ScriptLine label="8–12 с" value={scriptData.benefit2} />
+                  <ScriptLine label="12–15 с · призыв" value={scriptData.cta} />
                 </div>
               ) : scriptError ? (
                 <div role="alert" className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300">
@@ -470,7 +470,7 @@ export function CreateVideoPage() {
               <div className="space-y-3 pt-4 border-t border-border-default/50">
                 <SummaryRow label="Товар" value={productName} />
                 {price && <SummaryRow label="Цена" value={price} />}
-                <SummaryRow label="CTA" value={cta} />
+                <SummaryRow label="Призыв" value={cta} />
                 <SummaryRow label="Язык" value={LANGUAGES.find((l) => l.id === language)?.name || language} />
                 <SummaryRow label="Голос" value={VOICE_TYPES.find((v) => v.id === voiceType)?.name || voiceType} />
                 <SummaryRow label="Стиль" value={VIDEO_STYLES.find((s) => s.id === style)?.name || style} />
@@ -504,7 +504,7 @@ export function CreateVideoPage() {
               className="animate-pulse-glow"
             >
               {!generating && <Rocket size={18} />}
-              Generate Video
+              Создать видео
             </Button>
           )}
         </div>

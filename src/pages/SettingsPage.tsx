@@ -35,7 +35,7 @@ export function SettingsPage() {
   };
 
   return (
-    <AppLayout title="Settings">
+    <AppLayout title="Настройки">
       <div className="max-w-2xl mx-auto space-y-6">
         <Card>
           <h2 className="text-lg font-semibold text-white mb-1">Профиль</h2>
@@ -64,14 +64,14 @@ export function SettingsPage() {
         </Card>
 
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-1">Workspace</h2>
+          <h2 className="text-lg font-semibold text-white mb-1">Рабочее пространство</h2>
           <p className="text-muted text-sm mb-5">Название вашего рабочего пространства</p>
 
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <Building2 size={18} className="text-muted shrink-0" />
               <div className="flex-1 min-w-0">
-                <Input value={workspaceName} maxLength={80} onChange={(e) => setWorkspaceName(e.target.value)} placeholder="Workspace name" />
+                <Input value={workspaceName} maxLength={80} onChange={(e) => setWorkspaceName(e.target.value)} placeholder="Название" />
               </div>
             </div>
             <Button onClick={handleSaveWorkspace} loading={saving} disabled={!workspaceName.trim()}>
