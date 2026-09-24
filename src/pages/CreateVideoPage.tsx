@@ -1,14 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Image as ImageIcon, Mic, Film, Rocket, ArrowRight, ArrowLeft, Upload, X, Check, RefreshCw } from 'lucide-react';
-import { api, apiUrl } from '@/lib/api';
+import { api, apiUrl, type ScriptSource } from '@/lib/api';
 import { newRequestId } from '@/lib/id';
 import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
-import { VIDEO_STYLES, LANGUAGES, VOICE_TYPES, CTA_OPTIONS, type Project, type VideoScript } from '@/types';
+import { VIDEO_STYLES, LANGUAGES, VOICE_TYPES, CTA_OPTIONS, AD_CATEGORIES, CATEGORY_CTA, type Project, type VideoScript } from '@/types';
 
 interface UploadedImage {
   id: string;
@@ -16,10 +16,16 @@ interface UploadedImage {
   name: string;
 }
 
-type ScriptData = VideoScript & { source: 'openai' | 'fallback' };
+type ScriptData = VideoScript & { source: ScriptSource };
+
+const SCRIPT_SOURCE_LABELS: Record<ScriptSource, string> = {
+  openai: 'Сгенерировано AI (OpenAI)',
+  ollama: 'Сгенерировано AI (локальная нейросеть)',
+  fallback: 'Сгенерировано BevHub Engine',
+};
 
 const STEPS = [
-  { id: 0, label: 'Товар', icon: Package },
+  { id: 0, label: 'Реклама', icon: Package },
   { id: 1, label: 'Фото', icon: ImageIcon },
   { id: 2, label: 'Голос', icon: Mic },
   { id: 3, label: 'Стиль', icon: Film },
@@ -46,7 +52,10 @@ export function CreateVideoPage() {
   const [productName, setProductName] = useState('');
   const [productDescription, setProductDescription] = useState('');
   const [price, setPrice] = useState('');
-  const [cta, setCta] = useState<string>(CTA_OPTIONS[0]);
+  const [category, setCategory] = useState<string>('product');
+  const [cta, setCta] = useState<string>(CATEGORY_CTA.product.ru);
+  // Until the user edits the CTA, keep it matched to the ad type and language.
+  const ctaTouchedRef = useRef(false);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [projectId, setProjectId] = useState<string>('');
 
@@ -73,6 +82,10 @@ export function CreateVideoPage() {
       .catch(() => setMaleVoiceLanguages([]));
   }, []);
 
+  useEffect(() => {
+    if (!ctaTouchedRef.current) setCta(CATEGORY_CTA[category]?.[language] ?? CATEGORY_CTA.other.ru);
+  }, [category, language]);
+
   // Never let the summary promise a male voice the video won't have.
   useEffect(() => {
     if (!maleAllowed) setVoiceType('female');
@@ -84,14 +97,14 @@ export function CreateVideoPage() {
     setScriptData(null);
     setScriptError('');
     setGeneratingScript(false);
-  }, [productName, productDescription, cta, language, style]);
+  }, [productName, productDescription, cta, language, style, category]);
 
   const handleGenerateScript = async () => {
     const requestId = ++scriptRequestRef.current;
     setGeneratingScript(true);
     setScriptError('');
     try {
-      const data = await api.generateScript({ productName, description: productDescription, cta, language, style });
+      const data = await api.generateScript({ productName, description: productDescription, cta, language, style, category });
       if (requestId === scriptRequestRef.current) setScriptData({ ...data.script, source: data.source });
     } catch (err) {
       if (requestId === scriptRequestRef.current) {
@@ -137,6 +150,9 @@ export function CreateVideoPage() {
 
   const removeImage = (id: string) => setImages((prev) => prev.filter((img) => img.id !== id));
 
+  const currentCategory = AD_CATEGORIES.find((c) => c.id === category) ?? AD_CATEGORIES[0];
+  const ctaSuggestions = [...new Set([CATEGORY_CTA[category]?.[language], ...CTA_OPTIONS].filter(Boolean))];
+
   const canProceed = () => {
     switch (step) {
       case 0:
@@ -169,6 +185,7 @@ export function CreateVideoPage() {
         language,
         voiceType,
         style,
+        category,
         fileIds: images.map((img) => img.id),
         script: scriptData ? { hook: scriptData.hook, benefit1: scriptData.benefit1, benefit2: scriptData.benefit2, cta: scriptData.cta } : null,
         scriptSource: scriptData?.source ?? null,
@@ -218,27 +235,45 @@ export function CreateVideoPage() {
         <div className="animate-fade-in">
           {step === 0 && (
             <Card>
-              <h2 className="text-lg font-semibold text-white mb-1">Опишите товар</h2>
-              <p className="text-muted text-sm mb-6">AI создаст сценарий на основе этого описания</p>
+              <h2 className="text-lg font-semibold text-white mb-1">О чём реклама?</h2>
+              <p className="text-muted text-sm mb-6">Выберите тип и опишите тему своими словами — AI сам напишет сценарий</p>
 
               <div className="space-y-4" onFocus={loadProjects}>
+                <div>
+                  <label className="block text-sm font-medium text-white/90 mb-2">Тип рекламы</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {AD_CATEGORIES.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setCategory(c.id)}
+                        aria-pressed={category === c.id}
+                        className={`px-3 py-2 rounded-lg border text-sm text-left transition-colors ${
+                          category === c.id ? 'border-accent bg-accent/10 text-white' : 'border-border-default text-muted hover:border-accent/30 hover:text-white'
+                        }`}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Input
-                  label="Название товара/услуги"
-                  placeholder="Smart Watch, Nike Air Max..."
+                  label={currentCategory.title}
+                  placeholder={currentCategory.titleHint}
                   value={productName}
                   maxLength={100}
                   onChange={(e) => setProductName(e.target.value)}
                 />
                 <Textarea
                   label="Описание"
-                  placeholder="Опишите ваш товар — преимущества, особенности, целевую аудиторию..."
+                  placeholder={currentCategory.descHint}
                   value={productDescription}
                   maxLength={600}
                   onChange={(e) => setProductDescription(e.target.value)}
-                  hint="Чем подробнее описание, тем лучше сценарий"
+                  hint="Пишите своими словами — AI превратит это в рекламный текст"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input label="Цена (необязательно)" placeholder="29 999 сум" maxLength={50} value={price} onChange={(e) => setPrice(e.target.value)} />
+                  <Input label="Цена (необязательно)" placeholder="14 990 000 сум" maxLength={50} value={price} onChange={(e) => setPrice(e.target.value)} />
                   <div>
                     <Input
                       label="Призыв к действию"
@@ -246,10 +281,13 @@ export function CreateVideoPage() {
                       list="cta-options"
                       maxLength={60}
                       value={cta}
-                      onChange={(e) => setCta(e.target.value)}
+                      onChange={(e) => {
+                        ctaTouchedRef.current = true;
+                        setCta(e.target.value);
+                      }}
                     />
                     <datalist id="cta-options">
-                      {CTA_OPTIONS.map((opt) => (
+                      {ctaSuggestions.map((opt) => (
                         <option key={opt} value={opt} />
                       ))}
                     </datalist>
@@ -453,7 +491,7 @@ export function CreateVideoPage() {
               ) : scriptData ? (
                 <div className="space-y-2 mb-6 p-4 rounded-lg bg-accent/5 border border-accent/20">
                   <p className="text-xs text-muted mb-2">
-                    {scriptData.source === 'openai' ? 'Сгенерировано OpenAI' : 'Сгенерировано BevHub Engine'}
+                    {SCRIPT_SOURCE_LABELS[scriptData.source]}
                   </p>
                   <ScriptLine label="0–3 с · хук" value={scriptData.hook} />
                   <ScriptLine label="3–8 с" value={scriptData.benefit1} />
@@ -468,7 +506,8 @@ export function CreateVideoPage() {
               ) : null}
 
               <div className="space-y-3 pt-4 border-t border-border-default/50">
-                <SummaryRow label="Товар" value={productName} />
+                <SummaryRow label="Тип" value={currentCategory.name} />
+                <SummaryRow label="Реклама" value={productName} />
                 {price && <SummaryRow label="Цена" value={price} />}
                 <SummaryRow label="Призыв" value={cta} />
                 <SummaryRow label="Язык" value={LANGUAGES.find((l) => l.id === language)?.name || language} />

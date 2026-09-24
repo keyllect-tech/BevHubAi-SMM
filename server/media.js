@@ -153,8 +153,24 @@ export async function validateImageDecodes(filePath, mimeType) {
 }
 
 // ── AI Script Generation ──────────────────────────────────────────────────────
+// Providers, in order: OpenAI (when a working key is set) → Ollama (free local model, no key)
+// → the built-in template generator. Every step falls through to the next on any failure.
+
+/** Kinds of ads the app writes scripts for. */
+export const CATEGORIES = ['product', 'realty', 'food', 'shop', 'service', 'job', 'event', 'other'];
+const CATEGORY_LABELS = {
+  product: 'product for sale',
+  realty: 'real estate (sale or rent of an apartment, house, office or commercial space)',
+  food: 'restaurant, cafe or food delivery',
+  shop: 'shop or store',
+  service: 'service business',
+  job: 'job vacancy / hiring announcement',
+  event: 'event, class or promotion',
+  other: 'general announcement',
+};
+
 // After the key is rejected (auth error or exhausted credits) there is no point calling OpenAI on
-// every request: it only adds latency. Back off and use the local generator meanwhile.
+// every request: it only adds latency. Back off and use the next provider meanwhile.
 let openaiPausedUntil = 0;
 const OPENAI_BACKOFF_MS = 30 * 60 * 1000;
 const OPENAI_RATE_LIMIT_BACKOFF_MS = 60 * 1000;
@@ -164,110 +180,234 @@ export function isOpenAIActive() {
   return Boolean(process.env.OPENAI_API_KEY) && Date.now() >= openaiPausedUntil;
 }
 
-export async function generateAIScript({ productName, description, cta, language, style }) {
-  const apiKey = isOpenAIActive() ? process.env.OPENAI_API_KEY : null;
-  const langLabel = LANGUAGES[language];
+// Ollama: a local LLM server (https://ollama.com). Free, offline, no API key.
+const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/+$/, '');
+export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
+const OLLAMA_TIMEOUT_MS = 90000; // the first request also loads the model into memory
+let ollamaCheckedAt = 0;
+let ollamaReady = false;
 
-  if (apiKey) {
+/** Is the Ollama server running with the configured model pulled? Cached for a minute. */
+export async function ollamaAvailable({ fresh = false } = {}) {
+  if (process.env.OLLAMA_DISABLED === 'true') return false;
+  if (!fresh && Date.now() - ollamaCheckedAt < 60000) return ollamaReady;
+  ollamaCheckedAt = Date.now();
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(1500) });
+    const data = await res.json();
+    ollamaReady = res.ok && (data.models || []).some((m) => m.name === OLLAMA_MODEL || m.model === OLLAMA_MODEL);
+  } catch {
+    ollamaReady = false;
+  }
+  return ollamaReady;
+}
+
+/** Loads the model into memory in the background so the first real request is fast. */
+export async function warmUpOllama() {
+  if (!(await ollamaAvailable({ fresh: true }))) {
+    console.log(`[AI SCRIPT] Ollama not available (model ${OLLAMA_MODEL}) — local templates will be used without an OpenAI key`);
+    return;
+  }
+  console.log(`[AI SCRIPT] Ollama ready (model ${OLLAMA_MODEL}) — warming up`);
+  fetch(`${OLLAMA_URL}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: OLLAMA_MODEL, prompt: 'ok', stream: false, keep_alive: '30m', options: { num_predict: 1 } }),
+    signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+  }).catch(() => {});
+}
+
+function scriptPrompt({ productName, description, cta, language, style, category }) {
+  const langLabel = LANGUAGES[language] + (language === 'uz' ? ' (Latin alphabet)' : '');
+  const system = `You write scripts for 15-second vertical video ads (TikTok, Reels, Shorts).
+Ad type: ${CATEGORY_LABELS[category] || CATEGORY_LABELS.other}. Visual style: ${style}.
+Write every field ONLY in ${langLabel}.
+Return ONLY valid JSON with exactly these keys: {"hook":"...","benefit1":"...","benefit2":"...","cta":"..."}
+- hook (0-3 s): a short attention-grabbing opening, at most 7 words
+- benefit1 (3-8 s): the strongest point from the description, at most 10 words
+- benefit2 (8-12 s): a second, different point from the description, at most 10 words
+- cta (12-15 s): the call to action, based on the user's call to action, at most 5 words
+Rules: rewrite the user's words into catchy ad copy; use only facts from the title and description;
+never invent prices, numbers, reviews, guarantees or deadlines; no emojis, hashtags or quotation marks.`;
+  const user = `Title: ${productName}\nDescription: ${description}\nCall to action: ${cta}`;
+  return { system, user };
+}
+
+const CYRILLIC = /[Ѐ-ӿ]/;
+
+/** Validates a model's JSON answer; rejects wrong-language or incomplete scripts. */
+function acceptScript(content, { cta, language }) {
+  const clean = (v, n) => cleanText(typeof v === 'string' ? v.replace(/^["«']+|["»']+$/g, '') : '', n);
+  const script = {
+    hook: clean(content?.hook, 80),
+    benefit1: clean(content?.benefit1, 90),
+    benefit2: clean(content?.benefit2, 90),
+    cta: clean(content?.cta, 60) || cta,
+  };
+  if (!script.hook || !script.benefit1 || !script.benefit2 || !script.cta) throw new Error('incomplete script');
+  const text = Object.values(script).join(' ');
+  if (language === 'ru' && !CYRILLIC.test(text)) throw new Error('script is not in Russian');
+  if (language !== 'ru' && CYRILLIC.test(text)) throw new Error(`script is not in ${LANGUAGES[language]}`);
+  return script;
+}
+
+async function openaiScript(input, apiKey) {
+  const { system, user } = scriptPrompt(input);
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    // Never shorten a longer pause another request already set.
+    const pauseFor = (ms) => {
+      openaiPausedUntil = Math.max(openaiPausedUntil, Date.now() + ms);
+    };
+    const codes = [data?.error?.type, data?.error?.code];
+    const keyUnusable = res.status === 401 || res.status === 403 || codes.some((c) => ['insufficient_quota', 'credit_balance_exhausted'].includes(c));
+    if (keyUnusable) {
+      pauseFor(OPENAI_BACKOFF_MS);
+      console.warn(`[AI SCRIPT] OpenAI key unusable (HTTP ${res.status}) — not calling OpenAI for the next 30 minutes`);
+    } else if (res.status === 429) {
+      // Plain rate limit: brief pause, honouring Retry-After when present.
+      const retryAfterMs = Number(res.headers.get('retry-after')) * 1000;
+      pauseFor(retryAfterMs > 0 ? Math.min(retryAfterMs, 5 * 60 * 1000) : OPENAI_RATE_LIMIT_BACKOFF_MS);
+    }
+    throw new Error(`OpenAI HTTP ${res.status}: ${data?.error?.message || 'unknown error'}`);
+  }
+  return acceptScript(JSON.parse(data?.choices?.[0]?.message?.content || 'null'), input);
+}
+
+async function ollamaScript(input) {
+  const { system, user } = scriptPrompt(input);
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      stream: false,
+      format: 'json',
+      keep_alive: '30m',
+      options: { temperature: 0.8, num_predict: 300 },
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+  const data = await res.json();
+  return acceptScript(JSON.parse(data?.message?.content || 'null'), input);
+}
+
+export async function generateAIScript({ productName, description, cta, language, style, category = 'product' }) {
+  const input = { productName, description, cta, language, style, category: CATEGORIES.includes(category) ? category : 'other' };
+
+  if (isOpenAIActive()) {
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(20000),
-        body: JSON.stringify({
-          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content: `You are an expert short-form video ad scriptwriter. Write a 15-second vertical video ad script in ${langLabel}. Style: ${style}.
-Return ONLY valid JSON: {"hook":"0-3s","benefit1":"3-8s","benefit2":"8-12s","cta":"12-15s"}
-Rules: every field in ${langLabel}; punchy; each field under 60 characters; do NOT invent features that are not in the description; the cta field must convey the user's CTA.`,
-            },
-            { role: 'user', content: `Product: ${productName}\nDescription: ${description || 'N/A'}\nCTA: ${cta || 'N/A'}` },
-          ],
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        // Never shorten a longer pause another request already set.
-        const pauseFor = (ms) => {
-          openaiPausedUntil = Math.max(openaiPausedUntil, Date.now() + ms);
-        };
-        const codes = [data?.error?.type, data?.error?.code];
-        const keyUnusable =
-          res.status === 401 || res.status === 403 || codes.some((c) => ['insufficient_quota', 'credit_balance_exhausted'].includes(c));
-        if (keyUnusable) {
-          pauseFor(OPENAI_BACKOFF_MS);
-          console.warn(`[AI SCRIPT] OpenAI key unusable (HTTP ${res.status}) — using the local generator for the next 30 minutes`);
-        } else if (res.status === 429) {
-          // Plain rate limit: brief pause, honouring Retry-After when present.
-          const retryAfterMs = Number(res.headers.get('retry-after')) * 1000;
-          pauseFor(retryAfterMs > 0 ? Math.min(retryAfterMs, 5 * 60 * 1000) : OPENAI_RATE_LIMIT_BACKOFF_MS);
-        }
-        throw new Error(`OpenAI HTTP ${res.status}: ${data?.error?.message || 'unknown error'}`);
-      }
-
-      const content = JSON.parse(data?.choices?.[0]?.message?.content || 'null');
-      const script = {
-        hook: cleanText(content?.hook, 80),
-        benefit1: cleanText(content?.benefit1, 80),
-        benefit2: cleanText(content?.benefit2, 80),
-        cta: cleanText(content?.cta, 60) || cta,
-      };
-      if (!script.hook || !script.benefit1 || !script.benefit2 || !script.cta) throw new Error('Invalid AI response structure');
-      console.log(`[AI SCRIPT] OpenAI script generated (${language}/${style})`);
+      const script = await openaiScript(input, process.env.OPENAI_API_KEY);
+      console.log(`[AI SCRIPT] OpenAI script (${input.category}/${language})`);
       return { script, source: 'openai' };
     } catch (err) {
-      console.error('[AI SCRIPT] OpenAI failed, using fallback:', err.message);
+      console.error('[AI SCRIPT] OpenAI failed:', err.message);
     }
   }
 
-  return { script: generateFallbackScript({ productName, description, cta, language, style }), source: 'fallback' };
+  if (await ollamaAvailable()) {
+    // Small local models occasionally answer in the wrong language: one retry, then templates.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const t0 = Date.now();
+        const script = await ollamaScript(input);
+        console.log(`[AI SCRIPT] Ollama script (${input.category}/${language}) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        return { script, source: 'ollama' };
+      } catch (err) {
+        console.warn(`[AI SCRIPT] Ollama attempt ${attempt} failed: ${err.message}`);
+      }
+    }
+  }
+
+  return { script: generateFallbackScript(input), source: 'fallback' };
 }
 
-// Local script generator: works with no API key at all, and offers a different phrasing each run
-// so "another variant" in the UI actually produces something new. Phrases are deliberately generic:
-// no invented facts, reviews or social proof ("thousands already bought") in someone's ad.
+// Built-in template generator: works with no AI at all and offers a different phrasing each run.
+// Phrases are deliberately generic — no invented facts, reviews or social proof in someone's ad.
 const TEMPLATES = {
   ru: {
-    hooks: {
-      product: ['Знакомьтесь — {name}', '{name}: то, что вы искали', 'Встречайте {name}'],
-      dynamic: ['Стоп! {name} меняет всё', 'Только посмотрите на {name}', 'Три секунды — и вы захотите {name}'],
-      premium: ['{name}. Создано для лучших', '{name} — когда выбираешь лучшее', 'Премиум в каждой детали: {name}'],
-      ugc: ['Смотрите, что я нашёл: {name}', 'Вот почему стоит присмотреться к {name}', '{name} — без фильтров'],
+    product: {
+      hooks: {
+        product: ['Знакомьтесь — {name}', '{name}: то, что вы искали', 'Встречайте {name}'],
+        dynamic: ['Стоп! {name} меняет всё', 'Только посмотрите на {name}', 'Три секунды — и вы захотите {name}'],
+        premium: ['{name}. Создано для лучших', '{name} — когда выбираешь лучшее', 'Премиум в каждой детали: {name}'],
+        ugc: ['Смотрите, что я нашёл: {name}', 'Вот почему стоит присмотреться к {name}', '{name} — без фильтров'],
+      },
+      closers: ['Для тех, кто выбирает лучшее', 'Попробуйте сами', 'Узнайте больше прямо сейчас'],
+      cta: 'Закажите сейчас',
     },
+    realty: { hooks: ['{name} — ваш новый адрес', 'Ищете помещение? {name}', 'Предложение: {name}'], closers: ['Посмотрите лично', 'Все детали — по телефону'], cta: 'Запишитесь на просмотр' },
+    food: { hooks: ['Проголодались? {name} ждёт вас', '{name} — вкус, ради которого возвращаются', 'Сегодня ужинаем в {name}'], closers: ['Ждём вас в гости', 'Забронируйте столик заранее'], cta: 'Забронируйте столик' },
+    shop: { hooks: ['{name} — всё нужное в одном месте', 'Загляните в {name}', 'Новинки уже в {name}'], closers: ['Приходите — поможем с выбором', 'Ждём вас в магазине'], cta: 'Приходите в магазин' },
+    service: { hooks: ['{name} — сделаем за вас', 'Нужна помощь? {name}', '{name}: решаем задачу под ключ'], closers: ['Обсудим вашу задачу', 'Оставьте заявку — свяжемся с вами'], cta: 'Оставьте заявку' },
+    job: { hooks: ['Мы ищем: {name}', 'Открыта вакансия — {name}', 'Присоединяйтесь к команде: {name}'], closers: ['Растите вместе с нами', 'Отправьте резюме сегодня'], cta: 'Откликнитесь сейчас' },
+    event: { hooks: ['Не пропустите: {name}', '{name} — ждём вас!', 'Приглашаем: {name}'], closers: ['Приходите с друзьями', 'Все подробности — по ссылке'], cta: 'Зарегистрируйтесь' },
+    other: { hooks: ['Знакомьтесь: {name}', 'Важное объявление: {name}', '{name} — узнайте подробнее'], closers: ['Узнайте больше', 'Свяжитесь с нами'], cta: 'Узнать подробнее' },
     benefits: ['Продумана каждая деталь', 'Стиль и удобство в одном', 'Создано с вниманием к деталям'],
-    closers: ['Для тех, кто выбирает лучшее', 'Попробуйте сами', 'Узнайте больше прямо сейчас'],
-    cta: 'Закажите сейчас',
   },
   uz: {
-    hooks: {
-      product: ['{name} — siz kutgan narsa', '{name}: aynan sizga kerak', 'Tanishing: {name}'],
-      dynamic: ['Toʻxtang! {name} hammasini oʻzgartiradi', '{name}ga bir qarang', 'Uch soniya — va {name} sizniki'],
-      premium: ['{name}. Eng yaxshilar uchun', '{name} — eng yaxshisini tanlaganlarga', 'Har bir detalda premium: {name}'],
-      ugc: ['Qarang, nima topdim: {name}', 'Nega {name}ga eʼtibor berish kerak', '{name} — filtrsiz'],
+    product: {
+      hooks: {
+        product: ['{name} — siz kutgan narsa', '{name}: aynan sizga kerak', 'Tanishing: {name}'],
+        dynamic: ['Toʻxtang! {name} hammasini oʻzgartiradi', '{name}ga bir qarang', 'Uch soniya — va {name} sizniki'],
+        premium: ['{name}. Eng yaxshilar uchun', '{name} — eng yaxshisini tanlaganlarga', 'Har bir detalda premium: {name}'],
+        ugc: ['Qarang, nima topdim: {name}', 'Nega {name}ga eʼtibor berish kerak', '{name} — filtrsiz'],
+      },
+      closers: ['Eng yaxshisini tanlaganlar uchun', 'Oʻzingiz sinab koʻring', 'Batafsil hoziroq bilib oling'],
+      cta: 'Hozir buyurtma qiling',
     },
+    realty: { hooks: ['{name} — yangi manzilingiz', 'Joy qidiryapsizmi? {name}', 'Taklif: {name}'], closers: ['Oʻzingiz kelib koʻring', 'Tafsilotlar telefon orqali'], cta: 'Koʻrishga yoziling' },
+    food: { hooks: ['Qorningiz ochdimi? {name} sizni kutmoqda', '{name} — qaytib keladigan taʼm', 'Bugun {name}da kechki ovqat'], closers: ['Sizni mehmonga kutamiz', 'Stolni oldindan band qiling'], cta: 'Stol band qiling' },
+    shop: { hooks: ['{name} — hammasi bir joyda', '{name}ga kiring', 'Yangiliklar {name}da'], closers: ['Keling — tanlashda yordam beramiz', 'Doʻkonda kutamiz'], cta: 'Doʻkonga keling' },
+    service: { hooks: ['{name} — biz siz uchun bajaramiz', 'Yordam kerakmi? {name}', '{name}: vazifani toʻliq hal qilamiz'], closers: ['Vazifangizni muhokama qilamiz', 'Ariza qoldiring — bogʻlanamiz'], cta: 'Ariza qoldiring' },
+    job: { hooks: ['Biz izlayapmiz: {name}', 'Boʻsh ish oʻrni — {name}', 'Jamoaga qoʻshiling: {name}'], closers: ['Biz bilan birga oʻsing', 'Rezyumeni bugun yuboring'], cta: 'Hoziroq javob bering' },
+    event: { hooks: ['Oʻtkazib yubormang: {name}', '{name} — sizni kutamiz!', 'Taklif qilamiz: {name}'], closers: ['Doʻstlaringiz bilan keling', 'Batafsil maʼlumot — havolada'], cta: 'Roʻyxatdan oʻting' },
+    other: { hooks: ['Tanishing: {name}', 'Muhim eʼlon: {name}', '{name} — batafsil bilib oling'], closers: ['Batafsil bilib oling', 'Biz bilan bogʻlaning'], cta: 'Batafsil bilish' },
     benefits: ['Har bir detal oʻylangan', 'Uslub va qulaylik birgalikda', 'Eʼtibor bilan yaratilgan'],
-    closers: ['Eng yaxshisini tanlaganlar uchun', 'Oʻzingiz sinab koʻring', 'Batafsil hoziroq bilib oling'],
-    cta: 'Hozir buyurtma qiling',
   },
   en: {
-    hooks: {
-      product: ['Meet {name}', '{name}: exactly what you were looking for', 'Introducing {name}'],
-      dynamic: ['Stop scrolling. {name} changes everything', 'Just look at {name}', 'Three seconds and you will want {name}'],
-      premium: ['{name}. Crafted for those who expect more', '{name} — when only the best will do', 'Premium in every detail: {name}'],
-      ugc: ['Look what I found: {name}', "Here's why {name} is worth a look", '{name}, no filter'],
+    product: {
+      hooks: {
+        product: ['Meet {name}', '{name}: exactly what you were looking for', 'Introducing {name}'],
+        dynamic: ['Stop scrolling. {name} changes everything', 'Just look at {name}', 'Three seconds and you will want {name}'],
+        premium: ['{name}. Crafted for those who expect more', '{name} — when only the best will do', 'Premium in every detail: {name}'],
+        ugc: ['Look what I found: {name}', "Here's why {name} is worth a look", '{name}, no filter'],
+      },
+      closers: ['For those who choose the best', 'See it for yourself', 'Find out more today'],
+      cta: 'Order now',
     },
+    realty: { hooks: ['{name} — your new address', 'Looking for a space? {name}', 'Now available: {name}'], closers: ['See it in person', 'Details on request'], cta: 'Book a viewing' },
+    food: { hooks: ['Hungry? {name} is waiting', '{name} — a taste worth coming back for', 'Tonight, dinner at {name}'], closers: ['We look forward to seeing you', 'Reserve your table in advance'], cta: 'Reserve a table' },
+    shop: { hooks: ['{name} — everything in one place', 'Drop by {name}', 'New arrivals at {name}'], closers: ['Come in — we will help you choose', 'See you in store'], cta: 'Visit the store' },
+    service: { hooks: ['{name} — we handle it for you', 'Need help? {name}', '{name}: done end to end'], closers: ["Let's discuss your task", 'Leave a request — we will call you back'], cta: 'Leave a request' },
+    job: { hooks: ["We're hiring: {name}", 'Open position — {name}', 'Join the team: {name}'], closers: ['Grow with us', 'Send your CV today'], cta: 'Apply now' },
+    event: { hooks: ["Don't miss it: {name}", '{name} — see you there!', "You're invited: {name}"], closers: ['Bring your friends', 'All the details at the link'], cta: 'Register now' },
+    other: { hooks: ['Meet {name}', 'Announcement: {name}', '{name} — find out more'], closers: ['Find out more', 'Get in touch'], cta: 'Learn more' },
     benefits: ['Every detail considered', 'Style and comfort in one', 'Made with attention to detail'],
-    closers: ['For those who choose the best', 'See it for yourself', 'Find out more today'],
-    cta: 'Order now',
   },
 };
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
-/** Splits the product description into two subtitle-sized selling points. */
+/** Splits the description into two subtitle-sized selling points. */
 function splitDescription(description) {
   const sentences = (description || '')
     .split(/(?<=[.!?])\s+/)
@@ -288,15 +428,17 @@ function splitDescription(description) {
 
 const capitalize = (s) => (s ? s.charAt(0).toLocaleUpperCase() + s.slice(1) : s);
 
-function generateFallbackScript({ productName, description, cta, language, style }) {
-  const t = TEMPLATES[language];
+function generateFallbackScript({ productName, description, cta, language, style, category }) {
+  const t = TEMPLATES[language] || TEMPLATES.ru;
+  const c = t[category] || t.other;
+  const hooks = category === 'product' ? c.hooks[style] || c.hooks.dynamic : c.hooks;
   const [first, second] = splitDescription(description).map(capitalize);
   return {
-    // Function replacer: a product name containing "$&" or "$$" must be inserted literally.
-    hook: shorten(pick(t.hooks[style] || t.hooks.dynamic).replace('{name}', () => productName), 90),
+    // Function replacer: a name containing "$&" or "$$" must be inserted literally.
+    hook: capitalize(shorten(pick(hooks).replace('{name}', () => productName), 90)),
     benefit1: shorten(first || pick(t.benefits), 90),
-    benefit2: shorten(second || pick(t.closers), 90),
-    cta: shorten(cta || t.cta, 60),
+    benefit2: shorten(second || pick(c.closers), 90),
+    cta: shorten(cta || c.cta, 60),
   };
 }
 
@@ -348,13 +490,14 @@ export const MALE_VOICE_LANGUAGES = Object.keys(LANGUAGES).filter(maleVoiceAvail
 // PowerShell single-quoted literal: forward slashes, and ' doubled (paths like C:\Users\O'Brien).
 const psString = (s) => `'${String(s).replace(/\\/g, '/').replace(/'/g, "''")}'`;
 
-async function localSpeech(text, language, voiceType, workDir) {
+/** Offline voice: one PowerShell run renders every phrase to its own WAV file. */
+async function localSpeech(texts, language, voiceType, workDir) {
   const cfg = SAPI[language] || SAPI.ru;
   const male = voiceType === 'male' && Boolean(cfg.male);
   const preferred = male ? cfg.male : cfg.female;
   const textPath = path.join(workDir, 'voice-text.txt');
-  const wavPath = path.join(workDir, 'voice.wav');
-  fs.writeFileSync(textPath, text, 'utf8');
+  fs.writeFileSync(textPath, texts.join('\n'), 'utf8');
+  const outPaths = texts.map((_, i) => path.join(workDir, `voice_${i}.wav`));
 
   // A voice of the right language is mandatory: an English voice reading Cyrillic produces garbage.
   // The chosen voice's real gender is reported back, so the video records what was actually used.
@@ -369,29 +512,40 @@ if (-not $voice) { $voice = $voices | Where-Object { $_.Culture.Name -eq ${psStr
 if (-not $voice) { throw ${psString(`No ${cfg.culture} voice installed in Windows`)} }
 $synth.SelectVoice($voice.Name)
 $synth.Rate = 1
-$synth.SetOutputToWaveFile(${psString(wavPath)})
-$synth.Speak([IO.File]::ReadAllText(${psString(textPath)}, [Text.Encoding]::UTF8))
+$lines = [IO.File]::ReadAllLines(${psString(textPath)}, [Text.Encoding]::UTF8)
+$outs = @(${outPaths.map(psString).join(', ')})
+# A phrase written in Cyrillic (e.g. a Russian description in an English video) can only be read by a
+# Russian voice; an English voice would produce silence.
+$ruVoice = $voices | Where-Object { $_.Culture.Name -eq 'ru-RU' } | Select-Object -First 1
+for ($i = 0; $i -lt $outs.Length; $i++) {
+  if ($ruVoice -and $voice.Culture.Name -ne 'ru-RU' -and $lines[$i] -match '[А-Яа-яЁё]') { $synth.SelectVoice($ruVoice.Name) } else { $synth.SelectVoice($voice.Name) }
+  $synth.SetOutputToWaveFile($outs[$i])
+  $synth.Speak($lines[$i])
+}
+$synth.SetOutputToNull()
 $synth.Dispose()
 Write-Output ("{0}|{1}" -f $voice.Name, $voice.Gender)
 `;
   const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 60000 });
-  if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size < 1000) throw new Error('offline voice produced no audio');
+  for (const p of outPaths) {
+    if (!fs.existsSync(p) || fs.statSync(p).size < 1000) throw new Error('offline voice produced no audio');
+  }
   const [voice = '', gender = ''] = stdout.trim().split('|');
-  return { path: wavPath, voice, gender: gender.trim().toLowerCase() === 'male' ? 'male' : 'female' };
+  return { paths: outPaths, voice, gender: gender.trim().toLowerCase() === 'male' ? 'male' : 'female' };
 }
 
-async function googleSpeech(text, language, workDir) {
-  // Google TTS has no Uzbek voice — Uzbek Latin text is read with the Russian voice.
-  const lang = language === 'en' ? 'en' : 'ru';
+async function googleSpeech(text, language, outPath) {
+  // Google TTS has no Uzbek voice — Uzbek Latin text is read with the Russian voice. A Cyrillic phrase
+  // in an English video is also read in Russian rather than spelled out by the English voice.
+  const lang = language === 'en' && !CYRILLIC.test(text) ? 'en' : 'ru';
   let lastError;
   for (let attempt = 1; attempt <= ONLINE_TTS_ATTEMPTS; attempt++) {
     try {
       const parts = await googleTTS.getAllAudioBase64(text, { lang, slow: false, timeout: ONLINE_TTS_TIMEOUT_MS, splitPunct: ',.!?' });
       const buffer = Buffer.concat(parts.map((p) => Buffer.from(p.base64, 'base64')));
       if (buffer.length < 1000) throw new Error('empty response');
-      const audioPath = path.join(workDir, 'voice.mp3');
-      fs.writeFileSync(audioPath, buffer);
-      return audioPath;
+      fs.writeFileSync(outPath, buffer);
+      return outPath;
     } catch (err) {
       lastError = err;
       if (attempt < ONLINE_TTS_ATTEMPTS) await new Promise((r) => setTimeout(r, 1000 * attempt));
@@ -400,22 +554,63 @@ async function googleSpeech(text, language, workDir) {
   throw lastError;
 }
 
+/** Online voice: one request per phrase. */
+async function onlineSpeech(texts, language, workDir) {
+  const paths = [];
+  for (let i = 0; i < texts.length; i++) paths.push(await googleSpeech(texts[i], language, path.join(workDir, `voice_${i}.mp3`)));
+  return paths;
+}
+
+const VOICE_LEAD_IN_SEC = 0.15;
+
 /**
- * Produces the voiceover. Tries the preferred source first and the other as a fallback; only when
- * both are unavailable does the video get a silent track. `gender` is the voice actually used.
+ * Places each phrase at the start of its subtitle segment (hook at 0 s, benefits at 3 s and 8 s,
+ * CTA at 12 s), speeding a phrase up only if it would overrun its segment. Produces one 15 s track.
+ */
+async function alignToSegments(clipPaths, workDir) {
+  const durations = await Promise.all(clipPaths.map(probeDuration));
+  const outPath = path.join(workDir, 'voice.wav');
+  const filters = SEGMENTS.map((seg, i) => {
+    const length = seg.end - seg.start;
+    const room = length - VOICE_LEAD_IN_SEC - 0.2;
+    const tempo = durations[i] > room ? Math.min(2, durations[i] / room) : 1;
+    const delayMs = Math.round(VOICE_LEAD_IN_SEC * 1000);
+    return (
+      `[${i}:a]aresample=44100,aformat=channel_layouts=stereo${tempo > 1 ? `,atempo=${tempo.toFixed(3)}` : ''},` +
+      `adelay=${delayMs}|${delayMs},apad,atrim=start=0:end=${length},asetpts=N/SR/TB[s${i}]`
+    );
+  });
+  await new Promise((resolve, reject) => {
+    const cmd = ffmpeg({ timeout: 60 });
+    for (const p of clipPaths) cmd.input(p);
+    cmd
+      .complexFilter([...filters, `${SEGMENTS.map((_, i) => `[s${i}]`).join('')}concat=n=${SEGMENTS.length}:v=0:a=1[voice]`])
+      .outputOptions(['-map [voice]', '-c:a pcm_s16le'])
+      .output(outPath)
+      .on('end', resolve)
+      .on('error', (err) => reject(new Error(`voice alignment failed: ${err.message.split('\n')[0]}`)))
+      .run();
+  });
+  return outPath;
+}
+
+/**
+ * Produces the voiceover, synchronised with the subtitles. Tries the preferred source first and the
+ * other as a fallback; only when both fail does the video get a silent track.
+ * `gender` is the voice actually used.
  */
 export async function generateSpeech(script, language, voiceType, workDir) {
-  const text = [script.hook, script.benefit1, script.benefit2, script.cta].map((s) => s.replace(/[.!?…]+$/, '')).join('. ');
+  const texts = SEGMENTS.map((seg) => script[seg.key].replace(/[.!?…]+$/, ''));
   const uzNote = language === 'uz' ? '-ru-voice' : '';
 
   const online = async () => {
-    const audioPath = await googleSpeech(text, language, workDir);
-    return { path: audioPath, duration: await probeDuration(audioPath), kind: `tts-online${uzNote}`, gender: 'female' };
+    const clips = await onlineSpeech(texts, language, workDir);
+    return { path: await alignToSegments(clips, workDir), duration: DURATION, aligned: true, kind: `tts-online${uzNote}`, gender: 'female' };
   };
   const offline = async () => {
-    const result = await localSpeech(text, language, voiceType, workDir);
+    const result = await localSpeech(texts, language, voiceType, workDir);
     console.log(`[TTS] offline voice: ${result.voice}`);
-    return { path: result.path, duration: await probeDuration(result.path), kind: `tts-offline${uzNote}`, gender: result.gender };
+    return { path: await alignToSegments(result.paths, workDir), duration: DURATION, aligned: true, kind: `tts-offline${uzNote}`, gender: result.gender };
   };
 
   // Offline first when: the online voice recently failed, or a male voice is wanted (online is
@@ -434,7 +629,7 @@ export async function generateSpeech(script, language, voiceType, workDir) {
     }
   }
   console.error('[TTS] no voice available — using a silent audio track');
-  return { path: null, duration: 0, kind: 'silence', gender: null };
+  return { path: null, duration: 0, aligned: false, kind: 'silence', gender: null };
 }
 
 // ── Video render ──────────────────────────────────────────────────────────────
@@ -485,7 +680,8 @@ export function renderVideo({ imagePath, voice, script, style, workDir, outputPa
     else cmd.input('anullsrc=r=44100:cl=stereo').inputFormat('lavfi');
 
     // Speed up long voiceovers so the whole script fits into 15 seconds.
-    const tempo = voice.duration > DURATION - 0.5 ? Math.min(2, voice.duration / (DURATION - 0.5)) : 1;
+    // A segment-aligned voice track is already exactly 15 s; only an unaligned one may need speeding up.
+    const tempo = !voice.aligned && voice.duration > DURATION - 0.5 ? Math.min(2, voice.duration / (DURATION - 0.5)) : 1;
     const { filters, output } = buildSubtitleFilters(script, style, workDir);
 
     cmd

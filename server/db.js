@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS videos (
   language TEXT NOT NULL,
   voice_type TEXT NOT NULL DEFAULT 'female',
   style TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'product',
   script_hook TEXT NOT NULL DEFAULT '',
   script_body TEXT NOT NULL DEFAULT '',
   script_cta TEXT NOT NULL DEFAULT '',
@@ -135,6 +136,9 @@ export function openDatabase(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  // Databases created before ad categories existed.
+  const videoColumns = db.prepare('PRAGMA table_info(videos)').all().map((c) => c.name);
+  if (!videoColumns.includes('category')) db.exec("ALTER TABLE videos ADD COLUMN category TEXT NOT NULL DEFAULT 'product'");
   return db;
 }
 

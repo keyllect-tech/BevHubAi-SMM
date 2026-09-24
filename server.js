@@ -23,6 +23,10 @@ import {
   maleVoiceAvailable,
   MALE_VOICE_LANGUAGES,
   TTS_MODE,
+  CATEGORIES,
+  OLLAMA_MODEL,
+  ollamaAvailable,
+  warmUpOllama,
 } from './server/media.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -71,6 +75,7 @@ function serializeVideo(v) {
     language: v.language,
     voice_type: v.voice_type,
     style: v.style,
+    category: v.category,
     script_hook: v.script_hook,
     script_body: v.script_body,
     script_cta: v.script_cta,
@@ -111,7 +116,8 @@ function parseScriptFields(body) {
   if (!cta) return { error: 'Укажите призыв к действию (CTA)' };
   if (!LANGUAGES[body.language]) return { error: 'Неподдерживаемый язык' };
   if (!STYLES.includes(body.style)) return { error: 'Неподдерживаемый стиль видео' };
-  return { value: { productName, description, cta, language: body.language, style: body.style } };
+  const category = CATEGORIES.includes(body.category) ? body.category : 'product';
+  return { value: { productName, description, cta, language: body.language, style: body.style, category } };
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -134,7 +140,7 @@ app.use('/api', (req, res, next) => {
 });
 app.use(express.json({ limit: '64kb' }));
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   res.json({
     ok: true,
     database: true,
@@ -144,6 +150,7 @@ app.get('/api/health', (_req, res) => {
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
     ttsMode: TTS_MODE,
     maleVoiceLanguages: MALE_VOICE_LANGUAGES,
+    localAi: (await ollamaAvailable()) ? OLLAMA_MODEL : null,
   });
 });
 
@@ -365,7 +372,7 @@ api.post('/videos', (req, res) => {
 
   const parsed = parseScriptFields(body);
   if (parsed.error) throw httpError(400, parsed.error);
-  const { productName, description, cta, language, style } = parsed.value;
+  const { productName, description, cta, language, style, category } = parsed.value;
 
   const fileIds = Array.isArray(body.fileIds) ? [...new Set(body.fileIds)] : [];
   if (fileIds.length === 0) throw httpError(400, 'Загрузите фото товара');
@@ -392,7 +399,7 @@ api.post('/videos', (req, res) => {
     s.hook && s.benefit1 && s.benefit2 && s.cta
       ? { hook: cleanText(s.hook, 100), benefit1: cleanText(s.benefit1, 120), benefit2: cleanText(s.benefit2, 120), cta: cleanText(s.cta, 80) }
       : null;
-  const scriptSource = script && ['openai', 'fallback'].includes(body.scriptSource) ? body.scriptSource : script ? 'client' : '';
+  const scriptSource = script && ['openai', 'ollama', 'fallback'].includes(body.scriptSource) ? body.scriptSource : script ? 'client' : '';
 
   const { subscription, usage } = getUsage(w);
   if (usage.videos_created >= (subscription?.monthly_limit || 15)) {
@@ -404,11 +411,11 @@ api.post('/videos', (req, res) => {
   transaction(db, () => {
     db.prepare(
       `INSERT INTO videos (id, workspace_id, project_id, client_request_id, title, product_name, product_description, price, cta, website_url,
-        language, voice_type, style, script_hook, script_body, script_cta, script_source, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?)`
+        language, voice_type, style, category, script_hook, script_body, script_cta, script_source, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?)`
     ).run(
       videoId, w, projectId, body.clientRequestId, productName, productName, description, cleanText(body.price, 50), cta, websiteUrl,
-      language, voiceType, style, script?.hook || '', script ? `${script.benefit1}\n${script.benefit2}` : '', script?.cta || '', scriptSource, ts, ts
+      language, voiceType, style, category, script?.hook || '', script ? `${script.benefit1}\n${script.benefit2}` : '', script?.cta || '', scriptSource, ts, ts
     );
     fileIds.forEach((fileId, i) => {
       db.prepare('INSERT INTO video_assets (id, video_id, file_id, asset_type, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(newId(), videoId, fileId, 'image', i, ts);
@@ -473,7 +480,7 @@ api.get('/videos/:id/file', (req, res) => {
   const abs = video?.video_file && path.join(VIDEOS_DIR, video.video_file);
   if (!video || video.status !== 'completed' || !abs || !fs.existsSync(abs)) throw httpError(404, 'Видео не найдено');
   if (req.query.download === '1') {
-    res.attachment(`${video.title.replace(/[\\/:*?"<>| -]+/g, '_').slice(0, 80) || 'bevhub-video'}.mp4`);
+    res.attachment(`${video.title.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').slice(0, 80) || 'bevhub-video'}.mp4`);
   }
   res.sendFile(abs, { headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, no-store' } });
 });
@@ -535,7 +542,8 @@ const server = app.listen(PORT, () => {
   console.log(`[DB] ${DB_FILE}`);
   console.log(`[FFMPEG] ${FFMPEG_BIN}`);
   console.log(`[FONT] ${FONT_FILE || 'NOT FOUND — Cyrillic subtitles will not render. Set SUBTITLE_FONT.'}`);
-  console.log(`[AI SCRIPT] OpenAI ${process.env.OPENAI_API_KEY ? 'configured' : 'not configured — fallback templates'}`);
+  console.log(`[AI SCRIPT] OpenAI ${process.env.OPENAI_API_KEY ? 'configured' : 'not configured'}`);
+  warmUpOllama();
 });
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

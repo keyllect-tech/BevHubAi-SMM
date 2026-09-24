@@ -94,6 +94,7 @@ export function createGenerationQueue({ db, imagesDir, videosDir, tmpDir, concur
           cta: video.cta,
           language: video.language,
           style: video.style,
+          category: video.category,
         });
         script = generated.script;
         db.prepare('UPDATE videos SET script_hook = ?, script_body = ?, script_cta = ?, script_source = ?, updated_at = ? WHERE id = ?').run(

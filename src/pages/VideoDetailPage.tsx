@@ -22,7 +22,7 @@ import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, Badge } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { GENERATION_STEPS, LANGUAGES, VIDEO_STYLES, type GenerationJob, type Video } from '@/types';
+import { AD_CATEGORIES, GENERATION_STEPS, LANGUAGES, VIDEO_STYLES, type GenerationJob, type Video } from '@/types';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -328,6 +328,7 @@ export function VideoDetailPage() {
             <Card>
               <h3 className="text-white font-semibold mb-4">Детали видео</h3>
               <div className="space-y-3">
+                <DetailRow icon={FileText} label="Тип" value={AD_CATEGORIES.find((c) => c.id === video.category)?.name || 'Товар'} />
                 <DetailRow icon={FileText} label="Язык" value={LANGUAGES.find((l) => l.id === video.language)?.name || video.language} />
                 <DetailRow icon={Mic} label="Озвучка" value={AUDIO_LABELS[video.audio_kind] || video.voice_type} />
                 <DetailRow icon={Film} label="Стиль" value={VIDEO_STYLES.find((s) => s.id === video.style)?.name || video.style} />
@@ -340,7 +341,7 @@ export function VideoDetailPage() {
               <Card>
                 <h3 className="text-white font-semibold mb-1">Сценарий</h3>
                 <p className="text-xs text-muted mb-3">
-                  {video.script_source === 'openai' ? 'OpenAI' : video.script_source === 'fallback' ? 'BevHub Engine' : 'Пользовательский'}
+                  {video.script_source === 'openai' ? 'AI (OpenAI)' : video.script_source === 'ollama' ? 'AI (локальная нейросеть)' : video.script_source === 'fallback' ? 'BevHub Engine' : 'Пользовательский'}
                 </p>
                 <div className="space-y-3">
                   {video.script_hook && <ScriptBlock label="Хук" text={video.script_hook} />}

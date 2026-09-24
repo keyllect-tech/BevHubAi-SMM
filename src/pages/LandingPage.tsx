@@ -26,7 +26,7 @@ export function LandingPage() {
   const faqs = [
     {
       q: 'Что такое BevHubAI?',
-      a: 'BevHubAI — это AI-платформа для автоматического создания коротких рекламных видео. Вы описываете товар, загружаете фото, выбираете стиль — AI создаёт готовый ролик для TikTok, Reels и Shorts.',
+      a: 'BevHubAI — это AI-платформа для автоматического создания коротких рекламных видео. Вы описываете товар, услугу, заведение, недвижимость или вакансию, загружаете фото — AI пишет сценарий и создаёт готовый ролик для TikTok, Reels и Shorts.',
     },
     {
       q: 'Нужны ли технические знания?',
@@ -94,7 +94,7 @@ export function LandingPage() {
             <span className="gradient-text">за 5 минут</span>
           </h1>
           <p className="text-lg text-muted max-w-2xl mx-auto mb-8 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-            BevHubAI превращает описание вашего товара, фотографии и голос в готовый
+            BevHubAI превращает описание товара, услуги или бизнеса и фотографии в готовый
             рекламный ролик для Reels, TikTok и Shorts.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-12 animate-slide-up" style={{ animationDelay: '0.2s' }}>

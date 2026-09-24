@@ -48,6 +48,7 @@ export interface Video {
   language: string;
   voice_type: string;
   style: string;
+  category: string;
   script_hook: string;
   /** Both benefits, separated by a newline. */
   script_body: string;
@@ -109,6 +110,29 @@ export const GENERATION_STEPS = [
   'Adding subtitles',
   'Finalizing',
 ] as const;
+
+export const AD_CATEGORIES = [
+  { id: 'product', name: 'Товар', title: 'Название товара', titleHint: 'iPhone 15 Pro, кроссовки Nike…', descHint: 'Чем хорош товар: особенности, материалы, для кого он…' },
+  { id: 'realty', name: 'Недвижимость', title: 'Объект', titleHint: 'Офис 120 м² в центре', descHint: 'Продажа или аренда, площадь, район, этаж, ремонт, парковка…' },
+  { id: 'food', name: 'Ресторан / кафе', title: 'Название заведения', titleHint: 'Кафе «Самарканд»', descHint: 'Кухня, фирменные блюда, атмосфера, доставка, адрес…' },
+  { id: 'shop', name: 'Магазин', title: 'Название магазина', titleHint: 'Магазин электроники «Техно»', descHint: 'Что продаёте, ассортимент, акции, адрес…' },
+  { id: 'service', name: 'Услуги', title: 'Услуга', titleHint: 'Ремонт квартир под ключ', descHint: 'Что делаете, опыт, сроки, чем вы лучше…' },
+  { id: 'job', name: 'Вакансия', title: 'Вакансия', titleHint: 'Junior-программист', descHint: 'Компания, обязанности, условия, график, зарплата…' },
+  { id: 'event', name: 'Мероприятие', title: 'Мероприятие', titleHint: 'Мастер-класс по фотографии', descHint: 'Когда и где, программа, для кого, как попасть…' },
+  { id: 'other', name: 'Другое', title: 'Заголовок', titleHint: 'О чём ваша реклама', descHint: 'Опишите, что нужно прорекламировать…' },
+] as const;
+
+/** Pre-filled call to action per ad type and language (matches the server's templates). */
+export const CATEGORY_CTA: Record<string, Record<string, string>> = {
+  product: { ru: 'Закажите сейчас', uz: 'Hozir buyurtma qiling', en: 'Order now' },
+  realty: { ru: 'Запишитесь на просмотр', uz: 'Koʻrishga yoziling', en: 'Book a viewing' },
+  food: { ru: 'Забронируйте столик', uz: 'Stol band qiling', en: 'Reserve a table' },
+  shop: { ru: 'Приходите в магазин', uz: 'Doʻkonga keling', en: 'Visit the store' },
+  service: { ru: 'Оставьте заявку', uz: 'Ariza qoldiring', en: 'Leave a request' },
+  job: { ru: 'Откликнитесь сейчас', uz: 'Hoziroq javob bering', en: 'Apply now' },
+  event: { ru: 'Зарегистрируйтесь', uz: 'Roʻyxatdan oʻting', en: 'Register now' },
+  other: { ru: 'Узнать подробнее', uz: 'Batafsil bilish', en: 'Learn more' },
+};
 
 export const VIDEO_STYLES = [
   { id: 'product', name: 'Реклама товара', desc: 'Чистая рекламная подача' },
