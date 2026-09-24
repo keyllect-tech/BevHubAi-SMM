@@ -22,7 +22,7 @@ import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, Badge } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { GENERATION_STEPS, type GenerationJob, type Video } from '@/types';
+import { GENERATION_STEPS, LANGUAGES, VIDEO_STYLES, type GenerationJob, type Video } from '@/types';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -328,9 +328,9 @@ export function VideoDetailPage() {
             <Card>
               <h3 className="text-white font-semibold mb-4">Детали видео</h3>
               <div className="space-y-3">
-                <DetailRow icon={FileText} label="Язык" value={video.language} />
+                <DetailRow icon={FileText} label="Язык" value={LANGUAGES.find((l) => l.id === video.language)?.name || video.language} />
                 <DetailRow icon={Mic} label="Озвучка" value={AUDIO_LABELS[video.audio_kind] || video.voice_type} />
-                <DetailRow icon={Film} label="Стиль" value={video.style} />
+                <DetailRow icon={Film} label="Стиль" value={VIDEO_STYLES.find((s) => s.id === video.style)?.name || video.style} />
                 <DetailRow icon={Clock} label="Длительность" value={`${video.duration_sec}s`} />
                 <DetailRow icon={Globe} label="CTA" value={video.cta} />
               </div>
@@ -352,7 +352,7 @@ export function VideoDetailPage() {
             )}
 
             <div className="flex items-center gap-2">
-              <Badge variant="success">Completed</Badge>
+              <Badge variant="success">Готово</Badge>
               <span className="text-xs text-muted">{new Date(video.created_at).toLocaleString('ru-RU')}</span>
             </div>
           </div>
@@ -378,7 +378,7 @@ function DetailRow({ icon: Icon, label, value }: { icon: typeof FileText; label:
         <Icon size={15} />
         {label}
       </div>
-      <span className="text-sm text-white capitalize text-right break-words min-w-0">{value}</span>
+      <span className="text-sm text-white text-right break-words min-w-0">{value}</span>
     </div>
   );
 }

@@ -368,7 +368,7 @@ export function CreateVideoPage() {
                           language === l.id ? 'border-accent bg-accent/10' : 'border-border-default hover:border-accent/30'
                         }`}
                       >
-                        <span className="text-2xl block mb-1">{l.flag}</span>
+                        <span className="text-2xl font-semibold block mb-1">{l.code}</span>
                         <span className="text-sm text-white">{l.name}</span>
                       </button>
                     ))}

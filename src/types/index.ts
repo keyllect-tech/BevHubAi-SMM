@@ -118,9 +118,9 @@ export const VIDEO_STYLES = [
 ] as const;
 
 export const LANGUAGES = [
-  { id: 'ru', name: 'Русский', flag: '🇷🇺' },
-  { id: 'uz', name: 'O\'zbek', flag: '🇺🇿' },
-  { id: 'en', name: 'English', flag: '🇬🇧' },
+  { id: 'ru', name: 'Русский', code: 'RU' },
+  { id: 'uz', name: 'O\'zbek', code: 'UZ' },
+  { id: 'en', name: 'English', code: 'EN' },
 ] as const;
 
 export const VOICE_TYPES = [

@@ -286,9 +286,11 @@ function splitDescription(description) {
   return [single, ''];
 }
 
+const capitalize = (s) => (s ? s.charAt(0).toLocaleUpperCase() + s.slice(1) : s);
+
 function generateFallbackScript({ productName, description, cta, language, style }) {
   const t = TEMPLATES[language];
-  const [first, second] = splitDescription(description);
+  const [first, second] = splitDescription(description).map(capitalize);
   return {
     // Function replacer: a product name containing "$&" or "$$" must be inserted literally.
     hook: shorten(pick(t.hooks[style] || t.hooks.dynamic).replace('{name}', () => productName), 90),

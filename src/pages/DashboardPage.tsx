@@ -159,11 +159,11 @@ export function DashboardPage() {
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'completed':
-      return <Badge variant="success">Completed</Badge>;
+      return <Badge variant="success">Готово</Badge>;
     case 'processing':
-      return <Badge variant="warning">Processing</Badge>;
+      return <Badge variant="warning">В процессе</Badge>;
     case 'failed':
-      return <Badge variant="error">Failed</Badge>;
+      return <Badge variant="error">Ошибка</Badge>;
     default:
       return <Badge>{status}</Badge>;
   }

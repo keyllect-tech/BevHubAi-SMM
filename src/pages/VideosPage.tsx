@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import type { Video } from '@/types';
 
 const FILTERS = ['all', 'completed', 'processing', 'failed'];
+const FILTER_LABELS: Record<string, string> = { all: 'Все', completed: 'Готовые', processing: 'В процессе', failed: 'С ошибкой' };
 
 export function VideosPage() {
   const [videos, setVideos] = useState<Video[]>([]);
@@ -32,11 +33,11 @@ export function VideosPage() {
   const statusBadge = (status: string) => {
     switch (status) {
       case 'completed':
-        return <Badge variant="success">Completed</Badge>;
+        return <Badge variant="success">Готово</Badge>;
       case 'processing':
-        return <Badge variant="warning">Processing</Badge>;
+        return <Badge variant="warning">В процессе</Badge>;
       case 'failed':
-        return <Badge variant="error">Failed</Badge>;
+        return <Badge variant="error">Ошибка</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
@@ -50,11 +51,11 @@ export function VideosPage() {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors capitalize whitespace-nowrap ${
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors whitespace-nowrap ${
                 filter === f ? 'bg-accent/10 text-accent border border-accent/20' : 'text-muted hover:text-white border border-transparent'
               }`}
             >
-              {f === 'all' ? 'Все' : f}
+              {FILTER_LABELS[f]}
             </button>
           ))}
         </div>
@@ -82,7 +83,7 @@ export function VideosPage() {
           <VideoIcon size={40} className="text-muted mx-auto mb-3" />
           <p className="text-white font-medium mb-1">Нет видео</p>
           <p className="text-muted text-sm mb-4">
-            {filter === 'all' ? 'Создайте первое видео' : `Нет видео со статусом "${filter}"`}
+            {filter === 'all' ? 'Создайте первое видео' : `Нет видео в разделе «${FILTER_LABELS[filter]}»`}
           </p>
           <Link to="/create">
             <Button>
