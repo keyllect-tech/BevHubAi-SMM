@@ -72,8 +72,8 @@ export function AppSidebar() {
       <div className="p-3 border-t border-border-default">
         {workspace?.demo_mode && (
           <div className="mb-3 px-3 py-2 rounded-lg bg-accent/10 border border-accent/20">
-            <p className="text-xs text-accent font-medium">Demo Mode</p>
-            <p className="text-xs text-muted mt-0.5">AI APIs не настроены</p>
+            <p className="text-xs text-accent font-medium">Автономный режим</p>
+            <p className="text-xs text-muted mt-0.5">Работает без внешних ключей</p>
           </div>
         )}
         <div className="flex items-center gap-3 px-3 py-2">

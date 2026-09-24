@@ -153,8 +153,13 @@ export async function validateImageDecodes(filePath, mimeType) {
 }
 
 // ── AI Script Generation ──────────────────────────────────────────────────────
+// After an auth/quota rejection there is no point calling OpenAI on every request: it only adds
+// latency to each generation. Back off and use the local generator meanwhile.
+let openaiPausedUntil = 0;
+const OPENAI_BACKOFF_MS = 30 * 60 * 1000;
+
 export async function generateAIScript({ productName, description, cta, language, style }) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY && Date.now() >= openaiPausedUntil ? process.env.OPENAI_API_KEY : null;
   const langLabel = LANGUAGES[language];
 
   if (apiKey) {
@@ -178,7 +183,13 @@ Rules: every field in ${langLabel}; punchy; each field under 60 characters; do N
         }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}: ${data?.error?.message || 'unknown error'}`);
+      if (!res.ok) {
+        if ([401, 403, 429].includes(res.status)) {
+          openaiPausedUntil = Date.now() + OPENAI_BACKOFF_MS;
+          console.warn(`[AI SCRIPT] OpenAI rejected the key (HTTP ${res.status}) — using the local generator for the next 30 minutes`);
+        }
+        throw new Error(`OpenAI HTTP ${res.status}: ${data?.error?.message || 'unknown error'}`);
+      }
 
       const content = JSON.parse(data?.choices?.[0]?.message?.content || 'null');
       const script = {
@@ -198,43 +209,73 @@ Rules: every field in ${langLabel}; punchy; each field under 60 characters; do N
   return { script: generateFallbackScript({ productName, description, cta, language, style }), source: 'fallback' };
 }
 
-function generateFallbackScript({ productName, description, cta, language, style }) {
-  const name = productName;
-  const hooks = {
-    ru: {
-      product: `Знакомьтесь — ${name}`,
-      dynamic: `Стоп! ${name} меняет всё`,
-      premium: `${name}. Создано для лучших`,
-      ugc: `Не верил, пока не попробовал ${name}`,
+// Local script generator: works with no API key at all, and offers a different phrasing each run
+// so "another variant" in the UI actually produces something new.
+const TEMPLATES = {
+  ru: {
+    hooks: {
+      product: ['Знакомьтесь — {name}', '{name}: то, что вы искали', 'Вот почему все говорят про {name}'],
+      dynamic: ['Стоп! {name} меняет всё', 'Только посмотрите на {name}', 'Три секунды — и вы захотите {name}'],
+      premium: ['{name}. Создано для лучших', '{name} — когда выбираешь лучшее', 'Премиум в каждой детали: {name}'],
+      ugc: ['Не верил, пока не попробовал {name}', 'Взял {name} — и не пожалел', 'Честно про {name} после месяца'],
     },
-    uz: {
-      product: `${name} — siz kutgan narsa`,
-      dynamic: `Toʻxtang! ${name} hammasini oʻzgartiradi`,
-      premium: `${name}. Eng yaxshilar uchun`,
-      ugc: `${name}ni sinab koʻrgunimcha ishonmadim`,
+    benefits: ['Превосходное качество', 'Продумана каждая деталь', 'Работает так, как обещали'],
+    closers: ['Для тех, кто выбирает лучшее', 'Уже выбрали тысячи', 'Попробуйте — и почувствуете разницу'],
+    cta: 'Закажите сейчас',
+  },
+  uz: {
+    hooks: {
+      product: ['{name} — siz kutgan narsa', '{name}: aynan sizga kerak', 'Nega hamma {name} haqida gapiradi'],
+      dynamic: ['Toʻxtang! {name} hammasini oʻzgartiradi', '{name}ga bir qarang', 'Uch soniya — va {name} sizniki'],
+      premium: ['{name}. Eng yaxshilar uchun', '{name} — eng yaxshisini tanlaganlarga', 'Har bir detalda premium: {name}'],
+      ugc: ['{name}ni sinab koʻrgunimcha ishonmadim', '{name}ni oldim — afsuslanmadim', 'Bir oydan keyin {name} haqida rostini aytaman'],
     },
-    en: {
-      product: `Meet ${name}`,
-      dynamic: `Stop scrolling. ${name} changes everything`,
-      premium: `${name}. Crafted for those who expect more`,
-      ugc: `I can't believe I waited this long for ${name}`,
+    benefits: ['Ajoyib sifat', 'Har bir detal oʻylangan', 'Vada qilinganidek ishlaydi'],
+    closers: ['Eng yaxshisini tanlaganlar uchun', 'Minglab odam tanladi', 'Sinab koʻring — farqini sezasiz'],
+    cta: 'Hozir buyurtma qiling',
+  },
+  en: {
+    hooks: {
+      product: ['Meet {name}', '{name}: exactly what you were looking for', "Here's why everyone talks about {name}"],
+      dynamic: ['Stop scrolling. {name} changes everything', 'Just look at {name}', 'Three seconds and you will want {name}'],
+      premium: ['{name}. Crafted for those who expect more', '{name} — when only the best will do', 'Premium in every detail: {name}'],
+      ugc: ["I can't believe I waited this long for {name}", 'I bought {name} and never looked back', 'Honest thoughts on {name} after a month'],
     },
-  };
-  const secondBenefit = { ru: 'Для тех, кто выбирает лучшее', uz: 'Eng yaxshisini tanlaganlar uchun', en: 'For those who choose the best' };
-  const firstBenefit = { ru: 'Превосходное качество', uz: 'Ajoyib sifat', en: 'Premium quality' };
-  const defaultCta = { ru: 'Закажите сейчас', uz: 'Hozir buyurtma qiling', en: 'Order now' };
+    benefits: ['Premium quality', 'Every detail considered', 'Does exactly what it promises'],
+    closers: ['For those who choose the best', 'Thousands already switched', 'Try it and feel the difference'],
+    cta: 'Order now',
+  },
+};
 
-  // Use the user's own description — split into two sentences when it has them.
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
+/** Splits the product description into two subtitle-sized selling points. */
+function splitDescription(description) {
   const sentences = (description || '')
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.replace(/[.!?]+$/, '').trim())
     .filter(Boolean);
+  if (sentences.length >= 2) return [sentences[0], sentences.slice(1).join('. ')];
 
+  const single = sentences[0] || '';
+  if (single.length > 60 && single.includes(',')) {
+    // One long sentence: break it at the comma closest to the middle.
+    const commas = [...single.matchAll(/,/g)].map((m) => m.index);
+    const middle = single.length / 2;
+    const at = commas.reduce((best, i) => (Math.abs(i - middle) < Math.abs(best - middle) ? i : best), commas[0]);
+    return [single.slice(0, at).trim(), single.slice(at + 1).trim()];
+  }
+  return [single, ''];
+}
+
+function generateFallbackScript({ productName, description, cta, language, style }) {
+  const t = TEMPLATES[language];
+  const [first, second] = splitDescription(description);
   return {
-    hook: hooks[language][style],
-    benefit1: shorten(sentences[0] || firstBenefit[language], 90),
-    benefit2: shorten(sentences[1] || secondBenefit[language], 90),
-    cta: shorten(cta || defaultCta[language], 60),
+    hook: shorten(pick(t.hooks[style] || t.hooks.dynamic).replace('{name}', productName), 90),
+    benefit1: shorten(first || pick(t.benefits), 90),
+    benefit2: shorten(second || pick(t.closers), 90),
+    cta: shorten(cta || t.cta, 60),
   };
 }
 
@@ -245,32 +286,83 @@ function probeDuration(filePath) {
   });
 }
 
-const TTS_ATTEMPTS = 3;
-const TTS_TIMEOUT_MS = 25000;
+const TTS_ATTEMPTS = 2;
+const TTS_TIMEOUT_MS = 10000;
+// auto = online voice when reachable, offline voice otherwise; local = always offline; google = online only.
+const TTS_PROVIDER = (process.env.TTS_PROVIDER || 'auto').toLowerCase();
 
-export async function generateSpeech(script, language, workDir) {
-  const text = [script.hook, script.benefit1, script.benefit2, script.cta].map((s) => s.replace(/[.!?…]+$/, '')).join('. ');
+// Offline Windows voices (SAPI). No API key, no network — the safety net for demos.
+const SAPI_VOICES = {
+  ru: { female: 'Microsoft Irina Desktop', male: 'Microsoft Irina Desktop' },
+  uz: { female: 'Microsoft Irina Desktop', male: 'Microsoft Irina Desktop' },
+  en: { female: 'Microsoft Zira Desktop', male: 'Microsoft David Desktop' },
+};
+
+async function localSpeech(text, language, voiceType, workDir) {
+  if (process.platform !== 'win32') throw new Error('offline voice is only available on Windows');
+  const voice = SAPI_VOICES[language]?.[voiceType === 'male' ? 'male' : 'female'] || SAPI_VOICES.ru.female;
+  const textPath = path.join(workDir, 'voice-text.txt');
+  const wavPath = path.join(workDir, 'voice.wav');
+  fs.writeFileSync(textPath, text, 'utf8');
+
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Speech
+$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { $synth.SelectVoice('${voice}') } catch { }
+$synth.Rate = 1
+$synth.SetOutputToWaveFile([string]'${wavPath.replace(/\\/g, '/')}')
+$synth.Speak([IO.File]::ReadAllText([string]'${textPath.replace(/\\/g, '/')}', [Text.Encoding]::UTF8))
+$synth.Dispose()
+`;
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 60000 });
+  if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size < 1000) throw new Error('offline voice produced no audio');
+  return wavPath;
+}
+
+async function googleSpeech(text, language, workDir) {
   // Google TTS has no Uzbek voice — Uzbek Latin text is read with the Russian voice.
   const lang = language === 'en' ? 'en' : 'ru';
-
-  // Google throttles bursts, so a single timeout must not silently cost the video its voiceover.
+  let lastError;
   for (let attempt = 1; attempt <= TTS_ATTEMPTS; attempt++) {
     try {
       const parts = await googleTTS.getAllAudioBase64(text, { lang, slow: false, timeout: TTS_TIMEOUT_MS, splitPunct: ',.!?' });
       const buffer = Buffer.concat(parts.map((p) => Buffer.from(p.base64, 'base64')));
-      if (buffer.length < 1000) throw new Error('empty TTS response');
+      if (buffer.length < 1000) throw new Error('empty response');
       const audioPath = path.join(workDir, 'voice.mp3');
       fs.writeFileSync(audioPath, buffer);
-      const duration = await probeDuration(audioPath);
-      return { path: audioPath, duration, kind: language === 'uz' ? 'tts-ru-voice' : 'tts' };
+      return audioPath;
     } catch (err) {
-      if (attempt === TTS_ATTEMPTS) {
-        console.error(`[TTS] failed after ${TTS_ATTEMPTS} attempts, using silent audio track:`, err.message);
+      lastError = err;
+      if (attempt < TTS_ATTEMPTS) await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw lastError;
+}
+
+export async function generateSpeech(script, language, voiceType, workDir) {
+  const text = [script.hook, script.benefit1, script.benefit2, script.cta].map((s) => s.replace(/[.!?…]+$/, '')).join('. ');
+  const uzNote = language === 'uz' ? '-ru-voice' : '';
+
+  if (TTS_PROVIDER !== 'local') {
+    try {
+      const audioPath = await googleSpeech(text, language, workDir);
+      return { path: audioPath, duration: await probeDuration(audioPath), kind: `tts-online${uzNote}` };
+    } catch (err) {
+      if (TTS_PROVIDER === 'google') {
+        console.error('[TTS] online voice failed, using silent audio track:', err.message);
         return { path: null, duration: 0, kind: 'silence' };
       }
-      console.warn(`[TTS] attempt ${attempt} failed (${err.message}) — retrying`);
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
+      console.warn('[TTS] online voice unavailable, switching to the offline voice:', err.message);
     }
+  }
+
+  try {
+    const wavPath = await localSpeech(text, language, voiceType, workDir);
+    return { path: wavPath, duration: await probeDuration(wavPath), kind: `tts-offline${uzNote}` };
+  } catch (err) {
+    console.error('[TTS] offline voice failed, using silent audio track:', err.message);
+    return { path: null, duration: 0, kind: 'silence' };
   }
 }
 

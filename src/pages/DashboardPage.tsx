@@ -59,8 +59,8 @@ export function DashboardPage() {
         <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-lg bg-accent/10 border border-accent/20">
           <Sparkles size={18} className="text-accent shrink-0" />
           <p className="text-sm text-white/90">
-            <span className="text-accent font-medium">Demo Mode.</span> Если OpenAI недоступен, сценарий создаётся по
-            шаблонам. Видео, субтитры и озвучка генерируются на сервере.
+            <span className="text-accent font-medium">Автономный режим.</span> Сценарий, субтитры, озвучка и монтаж
+            создаются на вашем сервере — внешние ключи и подписки не нужны.
           </p>
         </div>
       )}

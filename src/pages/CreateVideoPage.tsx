@@ -379,7 +379,8 @@ export function CreateVideoPage() {
                     ))}
                   </div>
                   <p className="text-xs text-muted mt-2">
-                    Озвучка: Google TTS (один стандартный голос). Для узбекского используется русский голос.
+                    Озвучка генерируется автоматически. Мужской и женский голос доступны для английского; для русского и
+                    узбекского используется женский голос.
                   </p>
                 </div>
               </div>
@@ -434,7 +435,7 @@ export function CreateVideoPage() {
               ) : scriptData ? (
                 <div className="space-y-2 mb-6 p-4 rounded-lg bg-accent/5 border border-accent/20">
                   <p className="text-xs text-muted mb-2">
-                    {scriptData.source === 'openai' ? 'Сгенерировано OpenAI' : 'AI недоступен — сценарий по шаблону'}
+                    {scriptData.source === 'openai' ? 'Сгенерировано OpenAI' : 'Сгенерировано BevHub Engine'}
                   </p>
                   <ScriptLine label="0–3s HOOK" value={scriptData.hook} />
                   <ScriptLine label="3–8s" value={scriptData.benefit1} />

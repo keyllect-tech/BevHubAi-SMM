@@ -85,10 +85,10 @@ export function SettingsPage() {
           <h2 className="text-lg font-semibold text-white mb-1">Режим работы</h2>
           <p className="text-muted text-sm mb-4">Текущий режим генерации видео</p>
           <div className="p-4 rounded-lg border bg-accent/5 border-accent/20">
-            <p className="text-sm font-medium text-accent">{workspace?.demo_mode ? 'Demo Mode' : 'Real AI Mode'}</p>
+            <p className="text-sm font-medium text-accent">Автономный режим</p>
             <p className="text-xs text-muted mt-1">
-              Видео, субтитры и озвучка генерируются на сервере BevHubAI. Сценарий пишет OpenAI, а при его недоступности
-              используется шаблон.
+              Сценарий, субтитры, озвучка и монтаж выполняются на вашем сервере и работают без внешних ключей. Если
+              подключить ключ OpenAI, сценарии начнёт писать он.
             </p>
           </div>
         </Card>

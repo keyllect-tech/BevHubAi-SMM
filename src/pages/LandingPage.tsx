@@ -37,16 +37,16 @@ export function LandingPage() {
       a: 'Русский, узбекский и английский. AI генерирует сценарий и субтитры на выбранном языке.',
     },
     {
-      q: 'Можно ли использовать свой голос?',
-      a: 'Да. Вы можете загрузить аудиофайл с вашей озвучкой, либо выбрать AI-генерируемый мужской или женский голос.',
+      q: 'Как озвучивается видео?',
+      a: 'Озвучка создаётся автоматически по сценарию. Для английского можно выбрать мужской или женский голос, для русского и узбекского используется женский голос.',
     },
     {
       q: 'В каком формате получается видео?',
-      a: 'Вертикальный MP4 1080×1920 (9:16), оптимизированный для TikTok, Instagram Reels и YouTube Shorts. Длительность 15–30 секунд.',
+      a: 'Вертикальный MP4 1080×1920 (9:16), оптимизированный для TikTok, Instagram Reels и YouTube Shorts. Длительность 15 секунд.',
     },
     {
-      q: 'Что такое Demo Mode?',
-      a: 'Demo Mode работает без API ключей. Видео генерируется локально в браузере с использованием ваших фотографий, Ken Burns эффектов и автоматических субтитров. Real AI Mode подключается при добавлении API ключей.',
+      q: 'Нужны ли API-ключи или подписки?',
+      a: 'Нет. Сценарий, субтитры, озвучка и монтаж создаются на сервере BevHubAI и работают без внешних ключей. При желании можно подключить OpenAI — тогда сценарии будет писать он.',
     },
   ];
 
@@ -192,7 +192,7 @@ export function LandingPage() {
             {[
               { icon: FileText, title: 'Опишите товар', desc: 'Название, описание, цена' },
               { icon: Layers, title: 'Загрузите фото', desc: 'JPG, PNG или WEBP' },
-              { icon: Mic, title: 'Выберите голос', desc: 'AI или свой аудиофайл' },
+              { icon: Mic, title: 'Выберите голос', desc: 'AI-озвучка на 3 языках' },
               { icon: Film, title: 'Выберите стиль', desc: 'Dynamic, Premium, UGC' },
               { icon: Download, title: 'Получите видео', desc: 'MP4 1080×1920' },
             ].map((step, i) => {
@@ -362,7 +362,7 @@ export function LandingPage() {
                     'AI script generation',
                     'Auto subtitles',
                     'All video styles',
-                    plan.id !== 'starter' ? 'Custom voice upload' : 'Standard voices',
+                    'AI voiceover: RU, UZ, EN',
                   ].map((feat) => (
                     <li key={feat} className="flex items-center gap-2 text-sm text-white/80">
                       <Check size={15} className="text-accent shrink-0" />

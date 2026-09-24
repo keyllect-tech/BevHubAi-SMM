@@ -107,7 +107,7 @@ export function createGenerationQueue({ db, imagesDir, videosDir, tmpDir, concur
       }
 
       step(35, 'Generating voice');
-      const voice = await generateSpeech(script, video.language, workDir);
+      const voice = await generateSpeech(script, video.language, video.voice_type, workDir);
       db.prepare('UPDATE videos SET audio_kind = ?, updated_at = ? WHERE id = ?').run(voice.kind, nowIso(), videoId);
 
       step(50, 'Creating video');

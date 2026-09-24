@@ -27,9 +27,11 @@ import { GENERATION_STEPS, type GenerationJob, type Video } from '@/types';
 const POLL_INTERVAL_MS = 2000;
 
 const AUDIO_LABELS: Record<string, string> = {
-  tts: 'Google TTS',
-  'tts-ru-voice': 'Google TTS (русский голос)',
-  silence: 'Без озвучки (TTS недоступен)',
+  'tts-online': 'AI-озвучка (онлайн)',
+  'tts-online-ru-voice': 'AI-озвучка (онлайн, русский голос)',
+  'tts-offline': 'AI-озвучка (офлайн)',
+  'tts-offline-ru-voice': 'AI-озвучка (офлайн, русский голос)',
+  silence: 'Без озвучки',
 };
 
 export function VideoDetailPage() {
@@ -322,7 +324,7 @@ export function VideoDetailPage() {
               <Card>
                 <h3 className="text-white font-semibold mb-1">Сценарий</h3>
                 <p className="text-xs text-muted mb-3">
-                  {video.script_source === 'openai' ? 'OpenAI' : video.script_source === 'fallback' ? 'Шаблон (AI недоступен)' : 'Пользовательский'}
+                  {video.script_source === 'openai' ? 'OpenAI' : video.script_source === 'fallback' ? 'BevHub Engine' : 'Пользовательский'}
                 </p>
                 <div className="space-y-3">
                   {video.script_hook && <ScriptBlock label="HOOK" text={video.script_hook} />}
