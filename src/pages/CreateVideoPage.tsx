@@ -504,7 +504,7 @@ export function CreateVideoPage() {
               className="animate-pulse-glow"
             >
               {!generating && <Rocket size={18} />}
-              Создать видео
+              Сгенерировать видео
             </Button>
           )}
         </div>

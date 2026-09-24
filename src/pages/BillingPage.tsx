@@ -144,7 +144,7 @@ export function BillingPage() {
           })}
         </div>
 
-        <p className="text-center text-xs text-muted mt-6">Это mock биллинг для MVP. Реальная оплата будет подключена позже.</p>
+        <p className="text-center text-xs text-muted mt-6">Демонстрационный режим оплаты: тариф меняется без списания средств.</p>
       </div>
     </AppLayout>
   );

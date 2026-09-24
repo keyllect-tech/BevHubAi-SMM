@@ -148,7 +148,7 @@ export function createAuth(db) {
         db.prepare('INSERT INTO workspaces (id, user_id, name, demo_mode, created_at) VALUES (?, ?, ?, 1, ?)').run(
           workspaceId,
           userId,
-          `${name}'s Workspace`,
+          `Пространство «${name}»`,
           createdAt
         );
         db.prepare(

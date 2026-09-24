@@ -120,7 +120,7 @@ export function VideosPage() {
                   {video.status === 'completed' && (
                     <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/70 text-xs text-white flex items-center gap-1">
                       <Clock size={10} />
-                      {video.duration_sec}s
+                      {video.duration_sec} с
                     </div>
                   )}
                 </div>

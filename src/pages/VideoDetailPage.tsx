@@ -331,7 +331,7 @@ export function VideoDetailPage() {
                 <DetailRow icon={FileText} label="Язык" value={LANGUAGES.find((l) => l.id === video.language)?.name || video.language} />
                 <DetailRow icon={Mic} label="Озвучка" value={AUDIO_LABELS[video.audio_kind] || video.voice_type} />
                 <DetailRow icon={Film} label="Стиль" value={VIDEO_STYLES.find((s) => s.id === video.style)?.name || video.style} />
-                <DetailRow icon={Clock} label="Длительность" value={`${video.duration_sec}s`} />
+                <DetailRow icon={Clock} label="Длительность" value={`${video.duration_sec} с`} />
                 <DetailRow icon={Globe} label="Призыв" value={video.cta} />
               </div>
             </Card>
