@@ -70,6 +70,7 @@ type AuthResponse = { user: User; workspace: Workspace };
 type UsageResponse = { subscription: Subscription | null; usage: Usage };
 
 export const api = {
+  health: () => request<{ ok: boolean; ttsMode: string; maleVoiceLanguages: string[] }>('/api/health', { timeoutMs: 10000 }),
   me: () => request<{ user: User | null; workspace: Workspace | null }>('/api/auth/me'),
   login: (email: string, password: string) => request<AuthResponse>('/api/auth/login', { method: 'POST', body: { email, password } }),
   register: (name: string, email: string, password: string) =>

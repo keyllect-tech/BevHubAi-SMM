@@ -190,17 +190,20 @@ Rules: every field in ${langLabel}; punchy; each field under 60 characters; do N
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const errType = data?.error?.type || data?.error?.code;
+        // Never shorten a longer pause another request already set.
+        const pauseFor = (ms) => {
+          openaiPausedUntil = Math.max(openaiPausedUntil, Date.now() + ms);
+        };
+        const codes = [data?.error?.type, data?.error?.code];
         const keyUnusable =
-          res.status === 401 || res.status === 403 || ['insufficient_quota', 'credit_balance_exhausted'].includes(errType) ||
-          data?.error?.code === 'credit_balance_exhausted';
+          res.status === 401 || res.status === 403 || codes.some((c) => ['insufficient_quota', 'credit_balance_exhausted'].includes(c));
         if (keyUnusable) {
-          openaiPausedUntil = Date.now() + OPENAI_BACKOFF_MS;
+          pauseFor(OPENAI_BACKOFF_MS);
           console.warn(`[AI SCRIPT] OpenAI key unusable (HTTP ${res.status}) — using the local generator for the next 30 minutes`);
         } else if (res.status === 429) {
           // Plain rate limit: brief pause, honouring Retry-After when present.
           const retryAfterMs = Number(res.headers.get('retry-after')) * 1000;
-          openaiPausedUntil = Date.now() + (retryAfterMs > 0 ? Math.min(retryAfterMs, 5 * 60 * 1000) : OPENAI_RATE_LIMIT_BACKOFF_MS);
+          pauseFor(retryAfterMs > 0 ? Math.min(retryAfterMs, 5 * 60 * 1000) : OPENAI_RATE_LIMIT_BACKOFF_MS);
         }
         throw new Error(`OpenAI HTTP ${res.status}: ${data?.error?.message || 'unknown error'}`);
       }
@@ -302,14 +305,27 @@ function probeDuration(filePath) {
   });
 }
 
-// auto = online voice when reachable, offline Windows voice otherwise; local = always offline;
-// google = online only.
-const TTS_PROVIDER = (process.env.TTS_PROVIDER || 'auto').toLowerCase();
+// TTS_PROVIDER: auto = online voice when reachable, offline Windows voice otherwise;
+// local = offline only; google = online only.
+const TTS_MODES = ['auto', 'local', 'google'];
+const requestedTtsMode = (process.env.TTS_PROVIDER || 'auto').trim().toLowerCase();
+export const TTS_MODE = TTS_MODES.includes(requestedTtsMode) ? requestedTtsMode : 'auto';
+if (requestedTtsMode !== TTS_MODE) console.warn(`[TTS] unknown TTS_PROVIDER "${process.env.TTS_PROVIDER}" — using "auto"`);
+
+// Offline voices come from Windows (SAPI); on other systems only the online voice exists.
+const OFFLINE_VOICE_ENABLED = process.platform === 'win32' && TTS_MODE !== 'google';
+const ONLINE_VOICE_ENABLED = TTS_MODE !== 'local';
 const ONLINE_TTS_TIMEOUT_MS = 8000;
-const ONLINE_TTS_ATTEMPTS = TTS_PROVIDER === 'google' ? 3 : 1;
-// After the online voice fails, skip it for a while so each video doesn't wait for a timeout first.
+// With an offline fallback one quick try is enough; without one, retry before giving up.
+const ONLINE_TTS_ATTEMPTS = OFFLINE_VOICE_ENABLED ? 1 : 3;
+// After the online voice fails, prefer the offline one for a while so videos don't wait on timeouts.
+// Only meaningful when an offline voice exists — otherwise the online voice is the only option.
 const ONLINE_TTS_PAUSE_MS = 5 * 60 * 1000;
 let onlineTtsPausedUntil = 0;
+
+console.log(
+  `[TTS] mode: ${TTS_MODE} (online voice: ${ONLINE_VOICE_ENABLED ? 'on' : 'off'}, offline Windows voice: ${OFFLINE_VOICE_ENABLED ? 'on' : 'off'})`
+);
 
 // Offline Windows voices (SAPI). Preferred voice per language/gender; any installed voice of the
 // same culture is accepted as a substitute, but never a voice of another language.
@@ -321,14 +337,16 @@ const SAPI = {
 
 /** Only English has a male voice (offline David); the online voice is female-only. */
 export function maleVoiceAvailable(language) {
-  return language === 'en' && process.platform === 'win32' && TTS_PROVIDER !== 'google';
+  return language === 'en' && OFFLINE_VOICE_ENABLED;
 }
+
+/** Languages that offer a male voice on this server (exposed to the UI via /api/health). */
+export const MALE_VOICE_LANGUAGES = Object.keys(LANGUAGES).filter(maleVoiceAvailable);
 
 // PowerShell single-quoted literal: forward slashes, and ' doubled (paths like C:\Users\O'Brien).
 const psString = (s) => `'${String(s).replace(/\\/g, '/').replace(/'/g, "''")}'`;
 
 async function localSpeech(text, language, voiceType, workDir) {
-  if (process.platform !== 'win32') throw new Error('offline voice is only available on Windows');
   const cfg = SAPI[language] || SAPI.ru;
   const male = voiceType === 'male' && Boolean(cfg.male);
   const preferred = male ? cfg.male : cfg.female;
@@ -337,6 +355,7 @@ async function localSpeech(text, language, voiceType, workDir) {
   fs.writeFileSync(textPath, text, 'utf8');
 
   // A voice of the right language is mandatory: an English voice reading Cyrillic produces garbage.
+  // The chosen voice's real gender is reported back, so the video records what was actually used.
   const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Speech
@@ -351,11 +370,12 @@ $synth.Rate = 1
 $synth.SetOutputToWaveFile(${psString(wavPath)})
 $synth.Speak([IO.File]::ReadAllText(${psString(textPath)}, [Text.Encoding]::UTF8))
 $synth.Dispose()
-Write-Output $voice.Name
+Write-Output ("{0}|{1}" -f $voice.Name, $voice.Gender)
 `;
   const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 60000 });
   if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size < 1000) throw new Error('offline voice produced no audio');
-  return { path: wavPath, voice: stdout.trim() };
+  const [voice = '', gender = ''] = stdout.trim().split('|');
+  return { path: wavPath, voice, gender: gender.trim().toLowerCase() === 'male' ? 'male' : 'female' };
 }
 
 async function googleSpeech(text, language, workDir) {
@@ -378,35 +398,41 @@ async function googleSpeech(text, language, workDir) {
   throw lastError;
 }
 
+/**
+ * Produces the voiceover. Tries the preferred source first and the other as a fallback; only when
+ * both are unavailable does the video get a silent track. `gender` is the voice actually used.
+ */
 export async function generateSpeech(script, language, voiceType, workDir) {
   const text = [script.hook, script.benefit1, script.benefit2, script.cta].map((s) => s.replace(/[.!?…]+$/, '')).join('. ');
   const uzNote = language === 'uz' ? '-ru-voice' : '';
-  // The online voice is female-only, so a requested male English voice goes straight to the offline one.
-  const needsOfflineVoice = voiceType === 'male' && maleVoiceAvailable(language);
-  const tryOnline = TTS_PROVIDER === 'google' || (TTS_PROVIDER === 'auto' && !needsOfflineVoice && Date.now() >= onlineTtsPausedUntil);
 
-  if (tryOnline) {
+  const online = async () => {
+    const audioPath = await googleSpeech(text, language, workDir);
+    return { path: audioPath, duration: await probeDuration(audioPath), kind: `tts-online${uzNote}`, gender: 'female' };
+  };
+  const offline = async () => {
+    const result = await localSpeech(text, language, voiceType, workDir);
+    console.log(`[TTS] offline voice: ${result.voice}`);
+    return { path: result.path, duration: await probeDuration(result.path), kind: `tts-offline${uzNote}`, gender: result.gender };
+  };
+
+  // Offline first when: the online voice recently failed, or a male voice is wanted (online is
+  // female-only). The online voice stays as the fallback in both cases.
+  const preferOffline = (voiceType === 'male' && maleVoiceAvailable(language)) || Date.now() < onlineTtsPausedUntil;
+  const sources = [];
+  if (ONLINE_VOICE_ENABLED) sources.push(['online', online]);
+  if (OFFLINE_VOICE_ENABLED) sources[preferOffline ? 'unshift' : 'push'](['offline', offline]);
+
+  for (const [name, produce] of sources) {
     try {
-      const audioPath = await googleSpeech(text, language, workDir);
-      return { path: audioPath, duration: await probeDuration(audioPath), kind: `tts-online${uzNote}` };
+      return await produce();
     } catch (err) {
-      if (TTS_PROVIDER === 'google') {
-        console.error('[TTS] online voice failed, using silent audio track:', err.message);
-        return { path: null, duration: 0, kind: 'silence' };
-      }
-      onlineTtsPausedUntil = Date.now() + ONLINE_TTS_PAUSE_MS;
-      console.warn('[TTS] online voice unavailable — using the offline voice for the next 5 minutes:', err.message);
+      if (name === 'online' && OFFLINE_VOICE_ENABLED) onlineTtsPausedUntil = Date.now() + ONLINE_TTS_PAUSE_MS;
+      console.warn(`[TTS] ${name} voice failed: ${err.message}`);
     }
   }
-
-  try {
-    const { path: wavPath, voice } = await localSpeech(text, language, voiceType, workDir);
-    console.log(`[TTS] offline voice: ${voice}`);
-    return { path: wavPath, duration: await probeDuration(wavPath), kind: `tts-offline${uzNote}` };
-  } catch (err) {
-    console.error('[TTS] offline voice failed, using silent audio track:', err.message);
-    return { path: null, duration: 0, kind: 'silence' };
-  }
+  console.error('[TTS] no voice available — using a silent audio track');
+  return { path: null, duration: 0, kind: 'silence', gender: null };
 }
 
 // ── Video render ──────────────────────────────────────────────────────────────

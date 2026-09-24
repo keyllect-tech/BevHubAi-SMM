@@ -21,6 +21,8 @@ import {
   generateAIScript,
   isOpenAIActive,
   maleVoiceAvailable,
+  MALE_VOICE_LANGUAGES,
+  TTS_MODE,
 } from './server/media.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +37,6 @@ const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const PLANS = { starter: 15, pro: 50, agency: 200 };
-const VOICE_TYPES = ['female', 'male'];
 const ALLOWED_ORIGINS = (process.env.FRONTEND_URL || `http://localhost:5173,http://127.0.0.1:5173,http://localhost:${PORT}`)
   .split(',')
   .map((o) => o.trim())
@@ -141,6 +142,8 @@ app.get('/api/health', (_req, res) => {
     ffprobe: fs.existsSync(FFPROBE_BIN),
     subtitleFont: Boolean(FONT_FILE),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    ttsMode: TTS_MODE,
+    maleVoiceLanguages: MALE_VOICE_LANGUAGES,
   });
 });
 
@@ -380,7 +383,7 @@ api.post('/videos', (req, res) => {
   }
   // Only English has a male voice; store what will actually be rendered so the UI never shows a
   // voice the video does not have.
-  const voiceType = body.voiceType === 'male' && VOICE_TYPES.includes(body.voiceType) && maleVoiceAvailable(language) ? 'male' : 'female';
+  const voiceType = body.voiceType === 'male' && maleVoiceAvailable(language) ? 'male' : 'female';
   const websiteUrl = cleanText(body.websiteUrl, 300);
   if (websiteUrl && !/^https?:\/\//i.test(websiteUrl)) throw httpError(400, 'Website URL должен начинаться с http:// или https://');
 

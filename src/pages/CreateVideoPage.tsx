@@ -57,11 +57,26 @@ export function CreateVideoPage() {
   const [voiceType, setVoiceType] = useState('female');
   const [language, setLanguage] = useState('ru');
   const [style, setStyle] = useState('dynamic');
+  // Which languages have a male voice is decided by the server (depends on OS and TTS mode).
+  const [maleVoiceLanguages, setMaleVoiceLanguages] = useState<string[]>([]);
+  const maleAllowed = maleVoiceLanguages.includes(language);
 
   const [generating, setGenerating] = useState(false);
   const [generatingScript, setGeneratingScript] = useState(false);
   const [scriptData, setScriptData] = useState<ScriptData | null>(null);
   const [scriptError, setScriptError] = useState('');
+
+  useEffect(() => {
+    api
+      .health()
+      .then((h) => setMaleVoiceLanguages(h.maleVoiceLanguages ?? []))
+      .catch(() => setMaleVoiceLanguages([]));
+  }, []);
+
+  // Never let the summary promise a male voice the video won't have.
+  useEffect(() => {
+    if (!maleAllowed) setVoiceType('female');
+  }, [maleAllowed]);
 
   // Any input change makes a previously generated script stale.
   useEffect(() => {
@@ -348,11 +363,7 @@ export function CreateVideoPage() {
                     {LANGUAGES.map((l) => (
                       <button
                         key={l.id}
-                        onClick={() => {
-                          setLanguage(l.id);
-                          // Only English has a male voice.
-                          if (l.id !== 'en') setVoiceType('female');
-                        }}
+                        onClick={() => setLanguage(l.id)}
                         className={`p-3 sm:p-4 rounded-lg border text-center transition-colors ${
                           language === l.id ? 'border-accent bg-accent/10' : 'border-border-default hover:border-accent/30'
                         }`}
@@ -371,8 +382,8 @@ export function CreateVideoPage() {
                       <button
                         key={v.id}
                         onClick={() => setVoiceType(v.id)}
-                        disabled={v.id === 'male' && language !== 'en'}
-                        title={v.id === 'male' && language !== 'en' ? 'Мужской голос доступен только для английского' : undefined}
+                        disabled={v.id === 'male' && !maleAllowed}
+                        title={v.id === 'male' && !maleAllowed ? 'Мужской голос для этого языка недоступен' : undefined}
                         className={`p-4 rounded-lg border text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                           voiceType === v.id ? 'border-accent bg-accent/10' : 'border-border-default hover:border-accent/30'
                         }`}
@@ -385,8 +396,9 @@ export function CreateVideoPage() {
                     ))}
                   </div>
                   <p className="text-xs text-muted mt-2">
-                    Озвучка генерируется автоматически. Мужской и женский голос доступны для английского; для русского и
-                    узбекского используется женский голос.
+                    {maleVoiceLanguages.length > 0
+                      ? 'Озвучка генерируется автоматически. Мужской голос доступен для английского; для русского и узбекского используется женский.'
+                      : 'Озвучка генерируется автоматически, используется женский голос.'}
                   </p>
                 </div>
               </div>

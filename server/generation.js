@@ -108,7 +108,13 @@ export function createGenerationQueue({ db, imagesDir, videosDir, tmpDir, concur
 
       step(35, 'Generating voice');
       const voice = await generateSpeech(script, video.language, video.voice_type, workDir);
-      db.prepare('UPDATE videos SET audio_kind = ?, updated_at = ? WHERE id = ?').run(voice.kind, nowIso(), videoId);
+      // Record the voice actually used (e.g. a male request that fell back to the female online voice).
+      db.prepare('UPDATE videos SET audio_kind = ?, voice_type = COALESCE(?, voice_type), updated_at = ? WHERE id = ?').run(
+        voice.kind,
+        voice.gender,
+        nowIso(),
+        videoId
+      );
 
       step(50, 'Creating video');
       await renderVideo({

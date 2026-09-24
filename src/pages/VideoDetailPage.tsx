@@ -38,7 +38,8 @@ const AUDIO_LABELS: Record<string, string> = {
 };
 
 // The server reports steps by stable English ids; show them in Russian like the rest of the page.
-const STEP_LABELS: Record<string, string> = {
+// Keyed by the step type so adding a step without a translation fails the type check.
+const STEP_LABELS: Record<(typeof GENERATION_STEPS)[number], string> = {
   Queued: 'В очереди',
   'Analyzing product': 'Анализ товара',
   'Writing script': 'Пишем сценарий',
@@ -47,7 +48,7 @@ const STEP_LABELS: Record<string, string> = {
   'Adding subtitles': 'Субтитры',
   Finalizing: 'Финализация',
 };
-const stepLabel = (step: string) => STEP_LABELS[step] || step;
+const stepLabel = (step: string) => (STEP_LABELS as Record<string, string>)[step] || step;
 
 export function VideoDetailPage() {
   const { id = '' } = useParams();
