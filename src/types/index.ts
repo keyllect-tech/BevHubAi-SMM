@@ -55,6 +55,10 @@ export interface Video {
   script_cta: string;
   script_source: string;
   audio_kind: string;
+  /** Language the voiceover actually speaks (may differ from `language` when no exact voice exists). */
+  voice_language: string;
+  /** False when the voice is a substitute for another language. */
+  voice_exact: boolean;
   status: VideoStatus;
   video_url: string;
   thumbnail_url: string;
@@ -143,7 +147,7 @@ export const VIDEO_STYLES = [
 
 export const LANGUAGES = [
   { id: 'ru', name: 'Русский', code: 'RU' },
-  { id: 'uz', name: 'O\'zbek', code: 'UZ' },
+  { id: 'uz', name: 'O\u02BBzbek', code: 'UZ' },
   { id: 'en', name: 'English', code: 'EN' },
 ] as const;
 

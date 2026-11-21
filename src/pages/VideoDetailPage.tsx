@@ -27,15 +27,43 @@ import { AD_CATEGORIES, GENERATION_STEPS, LANGUAGES, VIDEO_STYLES, type Generati
 const POLL_INTERVAL_MS = 2000;
 
 const AUDIO_LABELS: Record<string, string> = {
+  // Provider ids written by server/tts — the label always names the real provider.
+  'tts-edge': 'AI-озвучка (Edge Neural)',
+  'tts-google': 'AI-озвучка (Google TTS)',
+  'tts-windows-sapi': 'AI-озвучка (Windows SAPI, офлайн)',
+  // Values written by earlier versions.
   'tts-online': 'AI-озвучка (онлайн)',
   'tts-online-ru-voice': 'AI-озвучка (онлайн, русский голос)',
   'tts-offline': 'AI-озвучка (офлайн)',
   'tts-offline-ru-voice': 'AI-озвучка (офлайн, русский голос)',
-  // Values written by earlier versions.
   tts: 'AI-озвучка (онлайн)',
   'tts-ru-voice': 'AI-озвучка (онлайн, русский голос)',
   silence: 'Без озвучки',
 };
+
+/** Name of the voice that actually spoke, including its real language when it is not the ad language. */
+function voiceLabel(video: Video): string {
+  const base = AUDIO_LABELS[video.audio_kind] || video.voice_type;
+  if (video.audio_kind === 'silence' || video.voice_exact !== false) return base;
+  const spoken = (video.voice_language || '').toUpperCase();
+  if (!spoken || spoken === String(video.language).toUpperCase()) return base;
+  return `${base} · голос языка ${spoken}`;
+}
+
+/** Source of the script text; the offline generator is never labelled as AI. */
+function scriptSourceLabel(source: string): string {
+  if (!source || source === 'client') return 'Пользовательский';
+  if (source.startsWith('ai:')) return `AI (${source.slice(3)})`;
+  if (source === 'template') return 'BevHub Engine (шаблон)';
+  const legacy: Record<string, string> = {
+    openai: 'AI (OpenAI)',
+    ollama: 'AI (локальная нейросеть)',
+    fallback: 'BevHub Engine (шаблон)',
+  };
+  return legacy[source] || source;
+}
+
+const VOICE_LANGUAGE_NAMES: Record<string, string> = { ru: 'русский', uz: 'узбекский', en: 'английский' };
 
 // The server reports steps by stable English ids; show them in Russian like the rest of the page.
 // Keyed by the step type so adding a step without a translation fails the type check.
@@ -93,7 +121,7 @@ export function VideoDetailPage() {
   // page never starts a second render — polling simply reconnects to the current state.
   const status = video?.status;
   useEffect(() => {
-    if (status !== 'processing') return;
+    if (status !== 'processing' && status !== 'queued') return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
@@ -105,7 +133,7 @@ export function VideoDetailPage() {
         setJob(data.job);
         if (data.video.status === 'completed') toast('Видео готово!', 'success');
         if (data.video.status === 'failed') toast(data.video.error_message || 'Генерация не удалась', 'error');
-        if (data.video.status !== 'processing') return;
+        if (data.video.status !== 'processing' && data.video.status !== 'queued') return;
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 404) {
@@ -330,18 +358,25 @@ export function VideoDetailPage() {
               <div className="space-y-3">
                 <DetailRow icon={FileText} label="Тип" value={AD_CATEGORIES.find((c) => c.id === video.category)?.name || 'Товар'} />
                 <DetailRow icon={FileText} label="Язык" value={LANGUAGES.find((l) => l.id === video.language)?.name || video.language} />
-                <DetailRow icon={Mic} label="Озвучка" value={AUDIO_LABELS[video.audio_kind] || video.voice_type} />
+                <DetailRow icon={Mic} label="Озвучка" value={voiceLabel(video)} />
                 <DetailRow icon={Film} label="Стиль" value={VIDEO_STYLES.find((s) => s.id === video.style)?.name || video.style} />
                 <DetailRow icon={Clock} label="Длительность" value={`${video.duration_sec} с`} />
                 <DetailRow icon={Globe} label="Призыв" value={video.cta} />
               </div>
+              {video.audio_kind !== 'silence' && video.voice_exact === false && (
+                <p role="status" className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200">
+                  Сценарий на языке «{LANGUAGES.find((l) => l.id === video.language)?.name || video.language}», но озвучен
+                  голосом языка «{VOICE_LANGUAGE_NAMES[video.voice_language] || video.voice_language || 'другого'}» — точного
+                  голоса для этого языка нет, поэтому озвучку нельзя считать озвучкой на нужном языке.
+                </p>
+              )}
             </Card>
 
             {(video.script_hook || video.script_body) && (
               <Card>
                 <h3 className="text-white font-semibold mb-1">Сценарий</h3>
                 <p className="text-xs text-muted mb-3">
-                  {video.script_source === 'openai' ? 'AI (OpenAI)' : video.script_source === 'ollama' ? 'AI (локальная нейросеть)' : video.script_source === 'fallback' ? 'BevHub Engine' : 'Пользовательский'}
+                  {scriptSourceLabel(video.script_source)}
                 </p>
                 <div className="space-y-3">
                   {video.script_hook && <ScriptBlock label="Хук" text={video.script_hook} />}

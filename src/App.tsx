@@ -8,6 +8,7 @@ import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ProjectsPage } from '@/pages/ProjectsPage';
 import { CreateVideoPage } from '@/pages/CreateVideoPage';
+import { QuickVideoPage } from '@/pages/QuickVideoPage';
 import { VideosPage } from '@/pages/VideosPage';
 import { VideoDetailPage } from '@/pages/VideoDetailPage';
 import { BrandKitPage } from '@/pages/BrandKitPage';
@@ -44,6 +45,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <CreateVideoPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/quick"
+              element={
+                <ProtectedRoute>
+                  <QuickVideoPage />
                 </ProtectedRoute>
               }
             />

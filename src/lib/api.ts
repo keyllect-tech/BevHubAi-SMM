@@ -67,11 +67,57 @@ async function request<T>(path: string, { method = 'GET', body, form, timeoutMs 
 }
 
 type AuthResponse = { user: User; workspace: Workspace };
-export type ScriptSource = 'openai' | 'ollama' | 'fallback';
+/**
+ * Where a script came from. 'template' is the offline generator — never presented as AI output.
+ * Older rows in the database still hold 'openai' / 'ollama' / 'fallback'.
+ */
+export type ScriptSource = 'ai:openai' | 'ai:custom' | 'ai:ollama' | 'template' | 'openai' | 'ollama' | 'fallback' | 'client' | string;
+
+export type AiProviderStatus = {
+  id: string;
+  label: string;
+  kind: string;
+  model: string | null;
+  configured: boolean;
+  available: boolean;
+  lastError: { code: string; message: string; at: string } | null;
+};
+
+export type TtsProviderStatus = {
+  id: string;
+  label: string;
+  configured: boolean;
+  available: boolean;
+  languages: string[];
+};
+
+export type ScriptResponse = {
+  script: VideoScript;
+  fullText: string;
+  /** Stored identifier: 'ai:<provider>' or 'template'. */
+  source: ScriptSource;
+  sourceKind: 'ai' | 'template';
+  sourceLabel: string;
+  provider: string | null;
+  model: string | null;
+  /** Non-empty when facts from the description could not be used (e.g. a foreign-language description). */
+  warning: string;
+  /** Why no AI provider produced the text, when that is the case. */
+  reason: string;
+  attempts: { provider: string; ok: boolean; code?: string; message?: string; skipped?: boolean }[];
+};
 type UsageResponse = { subscription: Subscription | null; usage: Usage };
 
 export const api = {
-  health: () => request<{ ok: boolean; ttsMode: string; maleVoiceLanguages: string[]; localAi: string | null }>('/api/health', { timeoutMs: 10000 }),
+  health: () =>
+    request<{
+      ok: boolean;
+      ttsMode: string;
+      maleVoiceLanguages: string[];
+      aiActive: boolean;
+      aiProviders: AiProviderStatus[];
+      ttsProviders: TtsProviderStatus[];
+    }>('/api/health', { timeoutMs: 15000 }),
   me: () => request<{ user: User | null; workspace: Workspace | null }>('/api/auth/me'),
   login: (email: string, password: string) => request<AuthResponse>('/api/auth/login', { method: 'POST', body: { email, password } }),
   register: (name: string, email: string, password: string) =>
@@ -102,10 +148,37 @@ export const api = {
       timeoutMs: 60000,
     });
   },
+  generateImage: async (input: { productName: string; description: string; style: string; category: string }): Promise<Blob> => {
+    let res: Response;
+    try {
+      res = await fetch(apiUrl('/api/images/generate'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(120000),
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        throw new ApiError(0, 'Генерация изображения заняла слишком много времени.');
+      }
+      throw new ApiError(0, SERVER_DOWN);
+    }
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+      throw new ApiError(res.status, data?.error || `Ошибка запроса (HTTP ${res.status})`);
+    }
+    if (!res.headers.get('content-type')?.includes('image/png')) {
+      throw new ApiError(502, 'Сервис вернул некорректный формат изображения.');
+    }
+    return res.blob();
+  },
 
   // A local model may need a while on its first request (it loads into memory).
   generateScript: (input: { productName: string; description: string; cta: string; language: string; style: string; category: string }) =>
-    request<{ script: VideoScript; source: ScriptSource }>('/api/scripts', { method: 'POST', body: input, timeoutMs: 120000 }),
+    request<ScriptResponse>('/api/scripts', { method: 'POST', body: input, timeoutMs: 120000 }),
 
   listVideos: () => request<{ videos: Video[] }>('/api/videos'),
   createVideo: (input: {
@@ -124,6 +197,9 @@ export const api = {
     script: VideoScript | null;
     scriptSource: string | null;
   }) => request<{ video: Video; deduplicated?: boolean }>('/api/videos', { method: 'POST', body: input }),
+  // Auto mode: one free-text request, no photos — the server derives everything and renders it.
+  createAutoVideo: (input: { clientRequestId: string; request: string; price?: string; websiteUrl?: string; projectId?: string | null }) =>
+    request<{ video: Video; deduplicated?: boolean }>('/api/videos', { method: 'POST', body: { ...input, mode: 'auto' } }),
   getVideo: (id: string) => request<{ video: Video; assets: VideoAsset[]; job: GenerationJob | null }>(`/api/videos/${encodeURIComponent(id)}`, { timeoutMs: 15000 }),
   retryVideo: (id: string) => request<{ video: Video }>(`/api/videos/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} }),
   videoDownloadUrl: (id: string) => apiUrl(`/api/videos/${encodeURIComponent(id)}/file?download=1`),

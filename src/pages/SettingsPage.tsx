@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { User, Mail, Building2, Save, LogOut } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { User, Mail, Building2, Save, LogOut, Bot, Mic } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '@/lib/api';
+import { api, type AiProviderStatus, type TtsProviderStatus } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -15,6 +15,26 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const [workspaceName, setWorkspaceName] = useState(workspace?.name || '');
   const [saving, setSaving] = useState(false);
+  // Real provider status from the server: never claim an AI or voice that is not there.
+  const [aiProviders, setAiProviders] = useState<AiProviderStatus[]>([]);
+  const [ttsProviders, setTtsProviders] = useState<TtsProviderStatus[]>([]);
+  const [aiActive, setAiActive] = useState(false);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+
+  useEffect(() => {
+    api
+      .health()
+      .then((h) => {
+        setAiProviders(h.aiProviders ?? []);
+        setTtsProviders(h.ttsProviders ?? []);
+        setAiActive(Boolean(h.aiActive));
+      })
+      .catch(() => {
+        setAiProviders([]);
+        setTtsProviders([]);
+      })
+      .finally(() => setProvidersLoaded(true));
+  }, []);
 
   const handleSaveWorkspace = async () => {
     setSaving(true);
@@ -82,14 +102,53 @@ export function SettingsPage() {
         </Card>
 
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-1">Режим работы</h2>
-          <p className="text-muted text-sm mb-4">Текущий режим генерации видео</p>
-          <div className="p-4 rounded-lg border bg-accent/5 border-accent/20">
-            <p className="text-sm font-medium text-accent">Автономный режим</p>
-            <p className="text-xs text-muted mt-1">
-              Сценарий, субтитры, озвучка и монтаж выполняются на вашем сервере и работают без внешних ключей. Если
-              подключить ключ OpenAI, сценарии начнёт писать он.
-            </p>
+          <h2 className="text-lg font-semibold text-white mb-1">AI и озвучка</h2>
+          <p className="text-muted text-sm mb-4">Что реально подключено на этом сервере</p>
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-medium text-white/80 mb-2 flex items-center gap-2">
+                <Bot size={14} className="text-muted" />
+                Сценарий
+                {providersLoaded && (
+                  <span className={aiActive ? 'text-accent' : 'text-amber-300/90'}>
+                    — {aiActive ? 'AI активен' : 'AI недоступен, используется офлайн-шаблон'}
+                  </span>
+                )}
+              </p>
+              <ul className="space-y-1">
+                {aiProviders.map((p) => (
+                  <li key={p.id} className="text-xs text-muted flex items-start gap-2">
+                    <span className={p.available ? 'text-accent' : 'text-red-400'}>•</span>
+                    <span className="min-w-0">
+                      {p.label}
+                      {p.model ? ` (${p.model})` : ''} — {p.configured ? (p.available ? 'доступен' : 'не отвечает') : 'не настроен'}
+                      {p.lastError && <span className="text-amber-300/80"> · {p.lastError.code}: {p.lastError.message}</span>}
+                    </span>
+                  </li>
+                ))}
+                {providersLoaded && aiProviders.length === 0 && <li className="text-xs text-muted">Провайдеры не найдены</li>}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-white/80 mb-2 flex items-center gap-2">
+                <Mic size={14} className="text-muted" />
+                Озвучка
+              </p>
+              <ul className="space-y-1">
+                {ttsProviders.map((p) => (
+                  <li key={p.id} className="text-xs text-muted flex items-start gap-2">
+                    <span className={p.available ? 'text-accent' : 'text-red-400'}>•</span>
+                    <span>
+                      {p.label} — {p.available ? 'доступен' : 'не отвечает'}; языки: {(p.languages || []).join(', ') || '—'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted mt-2">
+                Мужской голос и точный узбекский голос зависят от доступных провайдеров. Если голоса для языка нет, текст
+                читается голосом другого языка, и видео помечается как озвучка не на нужном языке.
+              </p>
+            </div>
           </div>
         </Card>
 

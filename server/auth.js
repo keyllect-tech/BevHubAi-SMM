@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { promisify } from 'util';
 import { Router } from 'express';
 import { newId, nowIso, transaction } from './db.js';
+import { createRateLimiter, retryAfterSeconds } from './rate-limit.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SESSION_COOKIE = 'bh_session';
@@ -9,6 +10,38 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 10;
+// A second, independent counter: one address may try many different emails (credential stuffing).
+// Counting per email alone lets a single host spray the whole user list.
+const LOGIN_MAX_FAILURES_PER_IP = 10;
+const IP_RE = /^[0-9a-f:.]+$/i;
+const PROXY_HEADERS = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'x-forwarded-proto'];
+
+/**
+ * Client address as Express sees it. `req.ip` already applies `trust proxy`: with the shipped
+ * `trust proxy = 'loopback'` a spoofed X-Forwarded-For is ignored unless the request really came
+ * from the local reverse proxy, so an outside client cannot pick its own bucket key.
+ * Returns null when the address is missing or malformed (never guess).
+ */
+function clientIp(req) {
+  const raw = String(req.ip || req.socket?.remoteAddress || '')
+    .trim()
+    .replace(/^::ffff:/i, '');
+  if (!raw || raw.includes(',') || !IP_RE.test(raw)) return null;
+  return raw;
+}
+
+const isProxyAddress = (ip) =>
+  ip === '::1' ||
+  /^127\./.test(ip) ||
+  /^10\./.test(ip) ||
+  /^192\.168\./.test(ip) ||
+  /^169\.254\./.test(ip) ||
+  /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+  /^f[cd][0-9a-f]{2}:/i.test(ip);
+const looksProxied = (req) => PROXY_HEADERS.some((name) => req.headers[name] !== undefined);
+
+// Set once per process so a misconfigured proxy is visible in the log without flooding it.
+let warnedSharedIp = false;
 
 export async function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -60,7 +93,8 @@ function publicWorkspace(row) {
 }
 
 export function createAuth(db) {
-  const loginFailures = new Map();
+  // Login failures are counted in SQLite: a restart must not reset a brute-force counter.
+  const loginLimiter = createRateLimiter(db);
 
   function startSession(res, userId) {
     const token = crypto.randomBytes(32).toString('base64url');
@@ -173,26 +207,56 @@ export function createAuth(db) {
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (!email || !password) return res.status(400).json({ error: 'Введите email и пароль' });
 
-    // Drop expired counters so a flood of unknown emails cannot grow the map without bound.
-    if (loginFailures.size > 500) {
-      for (const [k, times] of loginFailures) {
-        if (times.every((t) => Date.now() - t >= LOGIN_WINDOW_MS)) loginFailures.delete(k);
-      }
+    // Per-IP counter. It is skipped when the address is unknown, or when a proxy is in front but did
+    // not forward the real client address: then every request looks like it came from the proxy
+    // itself, and one key would lock out all users. The per-email counter still applies.
+    const ip = clientIp(req);
+    const sharedProxyIp = Boolean(ip) && isProxyAddress(ip) && looksProxied(req);
+    if (sharedProxyIp && !warnedSharedIp) {
+      warnedSharedIp = true;
+      console.warn(
+        '[AUTH] requests arrive from a proxy address that forwards no client IP — per-IP login limit is ' +
+          'disabled (set X-Forwarded-For in the proxy and keep trust proxy limited to the proxy address)'
+      );
     }
+    const ipKey = ip && !sharedProxyIp ? sha256(ip) : null;
 
-    const key = `${req.ip}|${email}`;
-    const failures = (loginFailures.get(key) || []).filter((t) => Date.now() - t < LOGIN_WINDOW_MS);
-    if (failures.length >= LOGIN_MAX_FAILURES) {
-      return res.status(429).json({ error: 'Слишком много попыток входа. Попробуйте через 15 минут.' });
+    // The address is hashed in both buckets: rate_events is plain SQLite, so raw client IPs stay out of it.
+    const pairKey = `${sha256(ip || 'unknown')}|${email}`;
+    const pairBlocked = loginLimiter.peek({ bucket: 'login', key: pairKey, windowMs: LOGIN_WINDOW_MS });
+    const ipBlocked = ipKey
+      ? loginLimiter.peek({ bucket: 'login_ip', key: ipKey, windowMs: LOGIN_WINDOW_MS })
+      : 0;
+    if (pairBlocked >= LOGIN_MAX_FAILURES || ipBlocked >= LOGIN_MAX_FAILURES_PER_IP) {
+      const retryAfterMs =
+        ipBlocked >= LOGIN_MAX_FAILURES_PER_IP
+          ? loginLimiter.retryAfter({ bucket: 'login_ip', key: ipKey, windowMs: LOGIN_WINDOW_MS })
+          : loginLimiter.retryAfter({ bucket: 'login', key: pairKey, windowMs: LOGIN_WINDOW_MS });
+      res.setHeader('Retry-After', String(retryAfterSeconds(retryAfterMs)));
+      return res.status(429).json({
+        error:
+          ipBlocked >= LOGIN_MAX_FAILURES_PER_IP
+            ? 'Слишком много попыток входа с этого устройства. Попробуйте позже.'
+            : 'Слишком много попыток входа. Попробуйте через 15 минут.',
+      });
     }
 
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     const ok = await verifyPassword(password, user ? user.password_hash : DUMMY_HASH);
     if (!user || !ok) {
-      loginFailures.set(key, [...failures, Date.now()]);
+      loginLimiter.hit({ bucket: 'login', key: pairKey, limit: LOGIN_MAX_FAILURES, windowMs: LOGIN_WINDOW_MS });
+      if (ipKey) {
+        loginLimiter.hit({
+          bucket: 'login_ip',
+          key: ipKey,
+          limit: LOGIN_MAX_FAILURES_PER_IP,
+          windowMs: LOGIN_WINDOW_MS,
+        });
+      }
       return res.status(401).json({ error: 'Неверный email или пароль' });
     }
-    loginFailures.delete(key);
+    loginLimiter.reset({ bucket: 'login', key: pairKey });
+    if (ipKey) loginLimiter.reset({ bucket: 'login_ip', key: ipKey });
 
     startSession(res, user.id);
     const workspace = db.prepare('SELECT * FROM workspaces WHERE user_id = ?').get(user.id);
@@ -216,9 +280,13 @@ export function createAuth(db) {
     res.json({ user: session.user, workspace: session.workspace });
   });
 
-  // Expired sessions are removed lazily on use; sweep the rest periodically.
+  // Expired sessions and old rate-limit rows are removed lazily; sweep them periodically. Both login
+  // buckets are pruned by their own window, so live counters are never dropped.
   setInterval(() => {
-    db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(nowIso());
+    const ts = nowIso();
+    db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(ts);
+    loginLimiter.prune({ bucket: 'login', windowMs: LOGIN_WINDOW_MS });
+    loginLimiter.prune({ bucket: 'login_ip', windowMs: LOGIN_WINDOW_MS });
   }, 60 * 60 * 1000).unref();
 
   return { router, requireAuth };

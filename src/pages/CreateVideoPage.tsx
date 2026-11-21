@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Package, Image as ImageIcon, Mic, Film, Rocket, ArrowRight, ArrowLeft, Upload, X, Check, RefreshCw } from 'lucide-react';
 import { api, apiUrl, type ScriptSource } from '@/lib/api';
 import { newRequestId } from '@/lib/id';
+import { submitCreateVideo, validateWizardStep } from '@/lib/create-video-validation';
 import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card } from '@/components/ui/Card';
@@ -16,12 +17,17 @@ interface UploadedImage {
   name: string;
 }
 
-type ScriptData = VideoScript & { source: ScriptSource };
-
-const SCRIPT_SOURCE_LABELS: Record<ScriptSource, string> = {
-  openai: 'Сгенерировано AI (OpenAI)',
-  ollama: 'Сгенерировано AI (локальная нейросеть)',
-  fallback: 'Сгенерировано BevHub Engine',
+type ScriptData = VideoScript & {
+  source: ScriptSource;
+  /** 'ai' or 'template' — the template generator is offline and must never be labelled as AI. */
+  sourceKind: 'ai' | 'template';
+  sourceLabel: string;
+  provider: string | null;
+  model: string | null;
+  /** Set when the description could not be used (e.g. a foreign-language description). */
+  warning: string;
+  /** Set when no AI provider was usable and the offline generator wrote the text. */
+  reason: string;
 };
 
 const STEPS = [
@@ -61,6 +67,7 @@ export function CreateVideoPage() {
 
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
   const [voiceType, setVoiceType] = useState('female');
@@ -68,6 +75,8 @@ export function CreateVideoPage() {
   const [style, setStyle] = useState('dynamic');
   // Which languages have a male voice is decided by the server (depends on OS and TTS mode).
   const [maleVoiceLanguages, setMaleVoiceLanguages] = useState<string[]>([]);
+  // Languages that some configured TTS provider can actually speak.
+  const [spokenLanguages, setSpokenLanguages] = useState<string[]>([]);
   const maleAllowed = maleVoiceLanguages.includes(language);
 
   const [generating, setGenerating] = useState(false);
@@ -78,8 +87,16 @@ export function CreateVideoPage() {
   useEffect(() => {
     api
       .health()
-      .then((h) => setMaleVoiceLanguages(h.maleVoiceLanguages ?? []))
-      .catch(() => setMaleVoiceLanguages([]));
+      .then((h) => {
+        setMaleVoiceLanguages(h.maleVoiceLanguages ?? []);
+        const languages = new Set<string>();
+        (h.ttsProviders ?? []).forEach((p) => (p.languages ?? []).forEach((l) => languages.add(l)));
+        setSpokenLanguages([...languages]);
+      })
+      .catch(() => {
+        setMaleVoiceLanguages([]);
+        setSpokenLanguages([]);
+      });
   }, []);
 
   useEffect(() => {
@@ -102,10 +119,28 @@ export function CreateVideoPage() {
   const handleGenerateScript = async () => {
     const requestId = ++scriptRequestRef.current;
     setGeneratingScript(true);
+    setScriptData(null);
     setScriptError('');
     try {
       const data = await api.generateScript({ productName, description: productDescription, cta, language, style, category });
-      if (requestId === scriptRequestRef.current) setScriptData({ ...data.script, source: data.source });
+      if (requestId === scriptRequestRef.current) {
+        const script = data.script;
+        if (!script || ![script.hook, script.benefit1, script.benefit2, script.cta]
+          .every((line) => typeof line === 'string' && line.trim())) {
+          setScriptError('Генератор вернул пустой или неполный сценарий. Повторите генерацию.');
+          return;
+        }
+        setScriptData({
+          ...script,
+          source: data.source,
+          sourceKind: data.sourceKind,
+          sourceLabel: data.sourceLabel,
+          provider: data.provider,
+          model: data.model,
+          warning: data.warning,
+          reason: data.reason,
+        });
+      }
     } catch (err) {
       if (requestId === scriptRequestRef.current) {
         setScriptError(err instanceof Error ? err.message : 'Не удалось сгенерировать сценарий');
@@ -125,7 +160,7 @@ export function CreateVideoPage() {
     }
   };
 
-  const handleFiles = async (files: FileList) => {
+  const handleFiles = async (files: FileList | File[]) => {
     const all = Array.from(files);
     const accepted = all.filter((f) => IMAGE_MIME.includes(f.type) && f.size <= MAX_IMAGE_BYTES);
     if (accepted.length < all.length) toast('Только JPG, PNG, WEBP до 10MB', 'error');
@@ -148,24 +183,52 @@ export function CreateVideoPage() {
     setUploading(false);
   };
 
+  const handleGenerateImage = async () => {
+    if (generatingImage || uploading) return;
+    if (!productName.trim() || !productDescription.trim()) {
+      toast('Сначала укажите название и описание товара', 'error');
+      return;
+    }
+    if (images.length >= MAX_IMAGES) {
+      toast(`Можно добавить максимум ${MAX_IMAGES} фото`, 'error');
+      return;
+    }
+
+    setGeneratingImage(true);
+    try {
+      const blob = await api.generateImage({
+        productName: productName.trim(),
+        description: productDescription.trim(),
+        style,
+        category,
+      });
+      await handleFiles([new File([blob], `generated-${Date.now()}.png`, { type: 'image/png' })]);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Не удалось сгенерировать изображение', 'error');
+    } finally {
+      setGeneratingImage(false);
+    }
+  };
+
   const removeImage = (id: string) => setImages((prev) => prev.filter((img) => img.id !== id));
 
   const currentCategory = AD_CATEGORIES.find((c) => c.id === category) ?? AD_CATEGORIES[0];
   const ctaSuggestions = [...new Set([CATEGORY_CTA[category]?.[language], ...CTA_OPTIONS].filter(Boolean))];
 
   const canProceed = () => {
-    switch (step) {
-      case 0:
-        return productName.trim().length > 0 && productDescription.trim().length > 0 && cta.trim().length > 0;
-      case 1:
-        return images.length > 0 && !uploading;
-      case 2:
-        return Boolean(voiceType && language);
-      case 3:
-        return Boolean(style);
-      default:
-        return images.length > 0 && productName.trim().length > 0 && productDescription.trim().length > 0;
-    }
+    return !validateWizardStep(step, {
+      productName,
+      productDescription,
+      cta,
+      websiteUrl,
+      images,
+      uploading,
+      generatingImage,
+      language,
+      voiceType,
+      style,
+      scriptData,
+    });
   };
 
   const handleGenerate = async () => {
@@ -174,22 +237,51 @@ export function CreateVideoPage() {
     submittingRef.current = true;
     setGenerating(true);
     try {
-      const { video } = await api.createVideo({
-        clientRequestId: clientRequestIdRef.current,
-        projectId: projectId || null,
-        productName: productName.trim(),
-        description: productDescription.trim(),
-        price,
-        cta: cta.trim(),
-        websiteUrl: websiteUrl.trim(),
+      const submission = await submitCreateVideo({
+        productName,
+        productDescription,
+        cta,
+        websiteUrl,
+        images,
+        uploading,
+        generatingImage,
         language,
         voiceType,
         style,
+        scriptData,
+      }, async (validInput) => api.createVideo({
+        clientRequestId: clientRequestIdRef.current,
+        projectId: projectId || null,
+        productName: validInput.productName.trim(),
+        description: validInput.productDescription.trim(),
+        price,
+        cta: validInput.cta.trim(),
+        websiteUrl: validInput.websiteUrl.trim(),
+        language: validInput.language,
+        voiceType: validInput.voiceType,
+        style: validInput.style,
         category,
-        fileIds: images.map((img) => img.id),
-        script: scriptData ? { hook: scriptData.hook, benefit1: scriptData.benefit1, benefit2: scriptData.benefit2, cta: scriptData.cta } : null,
+        fileIds: validInput.images.map((img) => img.id),
+        script: {
+          hook: validInput.scriptData.hook,
+          benefit1: validInput.scriptData.benefit1,
+          benefit2: validInput.scriptData.benefit2,
+          cta: validInput.scriptData.cta,
+        },
         scriptSource: scriptData?.source ?? null,
-      });
+      }));
+      if (!submission.valid) {
+        setStep(submission.issue.step);
+        const message = submission.issue.step === 4 && scriptError
+          ? `Ошибка генерации сценария: ${scriptError}`
+          : submission.issue.message;
+        if (submission.issue.step === 4 && !scriptError) setScriptError(submission.issue.message);
+        toast(message, 'error');
+        submittingRef.current = false;
+        setGenerating(false);
+        return;
+      }
+      const { video } = submission.result;
       navigate(`/videos/${video.id}`);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Ошибка при запуске генерации', 'error');
@@ -327,6 +419,16 @@ export function CreateVideoPage() {
             <Card>
               <h2 className="text-lg font-semibold text-white mb-1">Загрузите фото товара</h2>
               <p className="text-muted text-sm mb-6">В видео используется первое фото</p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mb-5"
+                loading={generatingImage}
+                disabled={uploading || images.length >= MAX_IMAGES}
+                onClick={handleGenerateImage}
+              >
+                Сгенерировать фото по описанию
+              </Button>
 
               <div
                 role="button"
@@ -434,10 +536,19 @@ export function CreateVideoPage() {
                     ))}
                   </div>
                   <p className="text-xs text-muted mt-2">
+                    Озвучка генерируется автоматически.{' '}
                     {maleVoiceLanguages.length > 0
-                      ? 'Озвучка генерируется автоматически. Мужской голос доступен для английского; для русского и узбекского используется женский.'
-                      : 'Озвучка генерируется автоматически, используется женский голос.'}
+                      ? maleAllowed
+                        ? `Мужской голос для языка «${LANGUAGES.find((l) => l.id === language)?.name || language}» доступен.`
+                        : `Мужской голос для языка «${LANGUAGES.find((l) => l.id === language)?.name || language}» недоступен — будет использован женский.`
+                      : 'Доступен только женский голос.'}
                   </p>
+                  {spokenLanguages.length > 0 && !spokenLanguages.includes(language) && (
+                    <p role="status" className="text-xs text-amber-300/90 mt-2">
+                      Нет голоса для выбранного языка ({language}) — текст будет прочитан голосом другого языка, и видео не
+                      будет помечено как озвучка на этом языке.
+                    </p>
+                  )}
                 </div>
               </div>
             </Card>
@@ -489,19 +600,44 @@ export function CreateVideoPage() {
                   <p className="text-white font-medium">AI пишет продающий сценарий...</p>
                 </div>
               ) : scriptData ? (
+                <>
                 <div className="space-y-2 mb-6 p-4 rounded-lg bg-accent/5 border border-accent/20">
-                  <p className="text-xs text-muted mb-2">
-                    {SCRIPT_SOURCE_LABELS[scriptData.source]}
+                  <p className="text-xs mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className={scriptData.sourceKind === 'ai' ? 'text-accent' : 'text-muted'}>
+                      {scriptData.sourceLabel}
+                    </span>
+                    {scriptData.model && <span className="text-muted">· модель {scriptData.model}</span>}
                   </p>
                   <ScriptLine label="0–3 с · хук" value={scriptData.hook} />
                   <ScriptLine label="3–8 с" value={scriptData.benefit1} />
                   <ScriptLine label="8–12 с" value={scriptData.benefit2} />
                   <ScriptLine label="12–15 с · призыв" value={scriptData.cta} />
+                  {scriptData.warning && (
+                    <p role="status" className="text-xs text-amber-300/90 pt-1">
+                      {scriptData.warning}
+                    </p>
+                  )}
                 </div>
+                {scriptData.sourceKind === 'template' && scriptData.reason && (
+                  <div role="status" className="mb-6 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-200">
+                    <p className="font-medium mb-1">AI недоступен — текст собран офлайн-генератором</p>
+                    <p className="text-xs text-amber-200/80 break-words">{scriptData.reason}</p>
+                  </div>
+                )}
+                </>
               ) : scriptError ? (
                 <div role="alert" className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300">
-                  {scriptError}
-                  <p className="text-muted mt-1">Сценарий будет создан сервером при генерации.</p>
+                  <p>Не удалось подготовить сценарий: {scriptError}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={handleGenerateScript}
+                    disabled={generating}
+                  >
+                    <RefreshCw size={14} />
+                    Повторить генерацию сценария
+                  </Button>
                 </div>
               ) : null}
 

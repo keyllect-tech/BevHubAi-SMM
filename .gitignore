@@ -40,6 +40,9 @@ test_generation.js
 # Local SQLite database
 data/
 
+# Local Python virtual environment for the free edge-tts provider (Uzbek voice)
+.venv-tts/
+
 # Local test-data backups
 _testdata_backup_*/
 

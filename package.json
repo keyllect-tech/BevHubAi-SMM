@@ -12,7 +12,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "start-server": "node --disable-warning=ExperimentalWarning server.js"
+    "start-server": "node --disable-warning=ExperimentalWarning server.js",
+    "cleanup:scan": "node --disable-warning=ExperimentalWarning scripts/cleanup-scan.mjs",
+    "test:node": "node --disable-warning=ExperimentalWarning --test \"tests/*.test.mjs\""
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
