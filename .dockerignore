@@ -1,0 +1,54 @@
+# Backend-only build context: deny everything, then allow the runtime files.
+**
+!package.json
+!package-lock.json
+!server.js
+!server/
+!server/**
+
+# Environment files, credentials, private keys, and certificates.
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.crt
+**/*.cer
+**/id_rsa*
+**/id_ed25519*
+
+# Local data, persistent storage, uploads, media, backups, and temporary files.
+.bevhub-volume/
+**/.bevhub-volume/
+data/
+**/data/
+uploads/
+**/uploads/
+.venv-tts/
+**/.venv-tts/
+_testdata_backup_*/
+**/_testdata_backup_*/
+**/backups/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.sqlite
+**/*.sqlite3
+**/*.mp4
+**/*.webm
+**/*.mp3
+**/*.wav
+**/*.bak
+**/*.backup
+**/*.log
+
+# Repository metadata and installed/build artifacts.
+.git/
+**/.git/
+node_modules/
+**/node_modules/
+dist/
+**/dist/

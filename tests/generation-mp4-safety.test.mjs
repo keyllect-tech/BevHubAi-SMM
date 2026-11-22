@@ -187,24 +187,17 @@ test('jobPaths: per-run part path is unique and claimable; existing part-like fi
 test('run/cleanup integration: a failed render after claim leaves no damaged existing target and respects temp cleanup policy', () => {
   const box = sandbox('failed-render');
   const partPath = path.join(box.videos, 'x.run.part.mp4');
+  const startedAt = Date.now() - 10_000;
   // claim placeholder as run() would do, then simulate ffmpeg producing nothing useful (failure before valid render)
   assert.equal(claimExclusiveOutput(partPath).claimed, true);
-  const startedAt = Date.now();
   // policy disabled -> placeholder/temp kept
   const off = cleanupFailedRender({ partPath, rendered: false, policy: readCleanupPolicy({}), startedAt });
   assert.equal(off.removed, false);
   assert.equal(fs.existsSync(partPath), true);
   // policy enabled, own file, rendered false -> removed
   const on = readCleanupPolicy({ CLEANUP_ENABLED: 'true', CLEANUP_TMP_MODE: 'apply' });
-  const onRes = cleanupFailedRender({ partPath, rendered: false, policy: on, startedAt: Date.now() - 1 });
-  // removeOwnFile requires mtime >= startedAt threshold logic; ensure deterministically by setting old mtime? easier: recreate and pass startedAt before mtime
-  if (!onRes.removed) {
-    // recreate with fresh startedAt in past
-    assert.equal(claimExclusiveOutput(partPath).claimed, true);
-    const started = Date.now() - 10_000;
-    const r = cleanupFailedRender({ partPath, rendered: false, policy: on, startedAt: started });
-    assert.equal(r.removed, true);
-  }
+  const onRes = cleanupFailedRender({ partPath, rendered: false, policy: on, startedAt });
+  assert.deepEqual(onRes, { removed: true, reason: 'removed' });
   assert.equal(fs.existsSync(partPath), false);
 });
 
