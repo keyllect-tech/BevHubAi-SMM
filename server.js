@@ -167,7 +167,7 @@ app.use('/api', (req, res, next) => {
   if (origin && !ALLOWED_ORIGINS.includes(origin)) return res.status(403).json({ error: 'Запрос с недопустимого источника' });
   // Sec-Fetch-Site is set by the browser and cannot be scripted by a page, so it catches form posts
   // from another site even when the browser omits Origin. Missing (curl, server-to-server) is allowed.
-  if (req.headers['sec-fetch-site'] === 'cross-site') {
+  if (req.headers['sec-fetch-site'] === 'cross-site' && !origin) {
     return res.status(403).json({ error: 'Запрос с недопустимого источника' });
   }
   next();
