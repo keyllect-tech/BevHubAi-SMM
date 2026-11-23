@@ -69,8 +69,8 @@ isolationConfig.assertPath(DB_FILE);
 const db = openDatabase(DB_FILE);
 const auth = createAuth(db);
 const imageGenerator = createImageGenerator({
-  apiKey: process.env.OPENAI_API_KEY,
-  model: process.env.OPENAI_IMAGE_MODEL,
+  apiKey: process.env.OPENROUTER_API_KEY,
+  model: process.env.OPENROUTER_IMAGE_MODEL,
 });
 // Inventory covers every file below `uploads`, not just the two directories the database references:
 // `uploads/audio` and files dropped straight into `uploads` had no owner before. They are reported for

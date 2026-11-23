@@ -1,5 +1,5 @@
-const IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5-flare';
+const IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
+const DEFAULT_IMAGE_MODEL = 'openai/gpt-image-2';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_BASE64_LENGTH = Math.ceil((MAX_IMAGE_BYTES * 4) / 3);
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -58,7 +58,7 @@ export function createImageGenerator({ apiKey, model = DEFAULT_IMAGE_MODEL, fetc
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ model: selectedModel, prompt, size: '1024x1024' }),
+          body: JSON.stringify({ model: selectedModel, prompt, aspect_ratio: '9:16', output_format: 'png' }),
           signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (err) {

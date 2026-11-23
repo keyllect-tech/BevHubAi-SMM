@@ -45,7 +45,7 @@ npm run dev            # frontend: http://localhost:5173 (проксирует /
 
 ## Переменные окружения
 
-Все переменные описаны в `.env.example`. Ключи AI-провайдеров (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CUSTOM_AI_API_KEY`) используются только на сервере и никогда не попадают во frontend bundle. Для OpenRouter задайте `OPENROUTER_API_KEY`; `OPENROUTER_MODEL` по умолчанию равен `nvidia/nemotron-3-ultra-550b-a55b:free`. Ошибка настроенного OpenRouter возвращается клиенту и не переключает запрос на другую модель.
+Все переменные описаны в `.env.example`. Ключи AI-провайдеров (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CUSTOM_AI_API_KEY`) используются только на сервере и никогда не попадают во frontend bundle. Для OpenRouter задайте `OPENROUTER_API_KEY`; `OPENROUTER_MODEL` по умолчанию равен `nvidia/nemotron-3-ultra-550b-a55b:free`, а `OPENROUTER_IMAGE_MODEL` — `openai/gpt-image-2` для генерации изображений. Ошибка настроенного OpenRouter возвращается клиенту и не переключает запрос на другую модель.
 
 ---
 

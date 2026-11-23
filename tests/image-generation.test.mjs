@@ -12,7 +12,7 @@ const input = {
   category: 'product',
 };
 
-test('image generator uses the default model and returns PNG bytes from b64_json', async () => {
+test('image generator uses OpenRouter default model and returns PNG bytes from b64_json', async () => {
   let request;
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
@@ -25,10 +25,11 @@ test('image generator uses the default model and returns PNG bytes from b64_json
   const result = await generator.generate(input);
   const body = JSON.parse(request.options.body);
   assert.equal(generator.isConfigured(), true);
-  assert.equal(request.url, 'https://api.openai.com/v1/images/generations');
+  assert.equal(request.url, 'https://openrouter.ai/api/v1/images');
   assert.equal(request.options.headers.Authorization, 'Bearer synthetic-key');
-  assert.equal(body.model, 'gpt-image-2.5-flare');
-  assert.equal(body.size, '1024x1024');
+  assert.equal(body.model, 'openai/gpt-image-2');
+  assert.equal(body.aspect_ratio, '9:16');
+  assert.equal(body.output_format, 'png');
   assert.match(body.prompt, /Зелёный чай с жасмином/);
   assert.deepEqual(result, png);
 });
@@ -37,7 +38,7 @@ test('image generator accepts an explicitly configured model', async () => {
   let requestBody;
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
-    model: 'gpt-image-2.6-flare',
+    model: 'openai/gpt-image-2.6',
     fetchImpl: async (_url, options) => {
       requestBody = JSON.parse(options.body);
       return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200 });
@@ -45,7 +46,7 @@ test('image generator accepts an explicitly configured model', async () => {
   });
 
   await generator.generate(input);
-  assert.equal(requestBody.model, 'gpt-image-2.6-flare');
+  assert.equal(requestBody.model, 'openai/gpt-image-2.6');
 });
 
 test('image generator rejects missing configuration without making a request', async () => {
