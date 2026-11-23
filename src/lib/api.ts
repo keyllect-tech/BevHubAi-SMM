@@ -170,7 +170,8 @@ export const api = {
       if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
       throw new ApiError(res.status, data?.error || `Ошибка запроса (HTTP ${res.status})`);
     }
-    if (!res.headers.get('content-type')?.includes('image/png')) {
+    const contentType = res.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType || '')) {
       throw new ApiError(502, 'Сервис вернул некорректный формат изображения.');
     }
     return res.blob();

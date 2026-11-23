@@ -41,6 +41,7 @@ const STEPS = [
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGES = 10;
 const IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp'];
+const IMAGE_EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 export function CreateVideoPage() {
   const { toast } = useToast();
@@ -202,7 +203,9 @@ export function CreateVideoPage() {
         style,
         category,
       });
-      await handleFiles([new File([blob], `generated-${Date.now()}.png`, { type: 'image/png' })]);
+      const extension = IMAGE_EXTENSIONS[blob.type];
+      if (!extension) throw new Error('Сервис вернул неподдерживаемый формат изображения');
+      await handleFiles([new File([blob], `generated-${Date.now()}.${extension}`, { type: blob.type })]);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Не удалось сгенерировать изображение', 'error');
     } finally {

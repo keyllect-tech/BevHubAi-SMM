@@ -344,8 +344,8 @@ api.post('/images/generate', async (req, res) => {
   }
 
   try {
-    const image = await imageGenerator.generate({ productName, description, style, category });
-    res.type('png').set('Cache-Control', 'no-store').send(image);
+    const { image, mimeType } = await imageGenerator.generate({ productName, description, style, category });
+    res.type(mimeType).set('Cache-Control', 'no-store').send(image);
   } catch (err) {
     if (!(err instanceof ImageGenerationError)) throw err;
     console.warn(`[IMAGE] generation failed (upstream_status=${err.upstreamStatus ?? 'none'}, http_status=${err.status}, code=${err.code})`);

@@ -5,6 +5,7 @@ import { createImageGenerator, ImageGenerationError } from '../server/ai/image-g
 import { createRateLimiter } from '../server/rate-limit.js';
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+const webp = Buffer.from('RIFF0000WEBPVP8 ', 'ascii');
 const input = {
   productName: 'Чай',
   description: 'Зелёный чай с жасмином',
@@ -12,13 +13,16 @@ const input = {
   category: 'product',
 };
 
-test('image generator uses OpenRouter default model and returns PNG bytes from b64_json', async () => {
+test('image generator uses the free OpenRouter image model and returns WebP bytes from b64_json', async () => {
   let request;
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
     fetchImpl: async (url, options) => {
       request = { url, options };
-      return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200 });
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: webp.toString('base64'), media_type: 'image/webp' }] }),
+        { status: 200 },
+      );
     },
   });
 
@@ -27,26 +31,30 @@ test('image generator uses OpenRouter default model and returns PNG bytes from b
   assert.equal(generator.isConfigured(), true);
   assert.equal(request.url, 'https://openrouter.ai/api/v1/images');
   assert.equal(request.options.headers.Authorization, 'Bearer synthetic-key');
-  assert.equal(body.model, 'openai/gpt-image-2');
+  assert.equal(body.model, 'recraft/recraft-v4.1-flash-v2:free');
   assert.equal(body.aspect_ratio, '9:16');
-  assert.equal(body.output_format, 'png');
+  assert.deepEqual(body.provider, { allow_fallbacks: false });
+  assert.equal('output_format' in body, false);
   assert.match(body.prompt, /Зелёный чай с жасмином/);
-  assert.deepEqual(result, png);
+  assert.deepEqual(result, { image: webp, mimeType: 'image/webp' });
 });
 
-test('image generator accepts an explicitly configured model', async () => {
-  let requestBody;
+test('image generator allows only free variants and never requests a paid model', async () => {
+  let called = false;
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
-    model: 'openai/gpt-image-2.6',
-    fetchImpl: async (_url, options) => {
-      requestBody = JSON.parse(options.body);
-      return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200 });
+    model: 'openai/gpt-image-2',
+    fetchImpl: async () => {
+      called = true;
+      throw new Error('must not be called for a paid model');
     },
   });
 
-  await generator.generate(input);
-  assert.equal(requestBody.model, 'openai/gpt-image-2.6');
+  await assert.rejects(
+    generator.generate(input),
+    (err) => err instanceof ImageGenerationError && err.code === 'paid_model_blocked' && err.status === 503,
+  );
+  assert.equal(called, false);
 });
 
 test('image generator rejects missing configuration without making a request', async () => {
@@ -62,7 +70,7 @@ test('image generator rejects missing configuration without making a request', a
   assert.equal(called, false);
 });
 
-test('image generator classifies a retired or unknown model as an invalid upstream request', async () => {
+test('image generator reports an unavailable model without exposing provider response content', async () => {
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
     fetchImpl: async () => new Response(JSON.stringify({ error: { code: 'model_not_found', message: 'private upstream detail' } }), { status: 404 }),
@@ -72,8 +80,8 @@ test('image generator classifies a retired or unknown model as an invalid upstre
     generator.generate(input),
     (err) =>
       err instanceof ImageGenerationError &&
-      err.code === 'invalid_request' &&
-      err.status === 502 &&
+      err.code === 'model_unavailable' &&
+      err.status === 404 &&
       err.upstreamStatus === 404 &&
       !err.message.includes('private upstream detail') &&
       !err.message.includes('synthetic-key'),
@@ -103,7 +111,27 @@ test('image generator classifies upstream authorization failures without exposin
   }
 });
 
-test('image generator preserves rate-limit status and classifies provider failures', async () => {
+test('image generator preserves payment and rate-limit statuses without retries', async () => {
+  let paymentRequests = 0;
+  const paymentLimited = createImageGenerator({
+    apiKey: 'synthetic-key',
+    fetchImpl: async () => {
+      paymentRequests++;
+      return new Response(JSON.stringify({ error: { message: 'private billing detail' } }), { status: 402 });
+    },
+  });
+  await assert.rejects(
+    paymentLimited.generate(input),
+    (err) =>
+      err instanceof ImageGenerationError &&
+      err.code === 'payment_required' &&
+      err.status === 402 &&
+      err.upstreamStatus === 402 &&
+      !err.message.includes('private billing detail') &&
+      !err.message.includes('synthetic-key'),
+  );
+  assert.equal(paymentRequests, 1);
+
   const rateLimited = createImageGenerator({
     apiKey: 'synthetic-key',
     fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private upstream detail' } }), { status: 429 }),
@@ -117,10 +145,12 @@ test('image generator preserves rate-limit status and classifies provider failur
       err.upstreamStatus === 429 &&
       !err.message.includes('private upstream detail'),
   );
+});
 
+test('image generator classifies upstream 5xx responses as provider errors', async () => {
   const providerFailed = createImageGenerator({
     apiKey: 'synthetic-key',
-    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private upstream detail' } }), { status: 503 }),
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private upstream detail' } }), { status: 500 }),
   });
   await assert.rejects(
     providerFailed.generate(input),
@@ -128,7 +158,7 @@ test('image generator preserves rate-limit status and classifies provider failur
       err instanceof ImageGenerationError &&
       err.code === 'provider' &&
       err.status === 502 &&
-      err.upstreamStatus === 503 &&
+      err.upstreamStatus === 500 &&
       !err.message.includes('private upstream detail'),
   );
 });
@@ -175,6 +205,16 @@ test('image generator rejects malformed JSON and missing image data', async () =
   });
   await assert.rejects(
     missingImage.generate(input),
+    (err) => err instanceof ImageGenerationError && err.code === 'bad_response',
+  );
+
+  const mismatchedImageType = createImageGenerator({
+    apiKey: 'synthetic-key',
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ data: [{ b64_json: webp.toString('base64'), media_type: 'image/png' }] }), { status: 200 }),
+  });
+  await assert.rejects(
+    mismatchedImageType.generate(input),
     (err) => err instanceof ImageGenerationError && err.code === 'bad_response',
   );
 });
