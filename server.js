@@ -68,7 +68,10 @@ prepareTmpDir({ tmpDir: TMP_DIR, policy: cleanupPolicy });
 isolationConfig.assertPath(DB_FILE);
 const db = openDatabase(DB_FILE);
 const auth = createAuth(db);
-const imageGenerator = createImageGenerator({ apiKey: process.env.OPENAI_API_KEY });
+const imageGenerator = createImageGenerator({
+  apiKey: process.env.OPENAI_API_KEY,
+  model: process.env.OPENAI_IMAGE_MODEL,
+});
 // Inventory covers every file below `uploads`, not just the two directories the database references:
 // `uploads/audio` and files dropped straight into `uploads` had no owner before. They are reported for
 // manual review, never deleted — no table references them, so nothing can vouch for them.
@@ -325,6 +328,7 @@ api.post('/images/generate', async (req, res) => {
   const style = STYLES.includes(req.body?.style) ? req.body.style : 'product';
   const category = CATEGORIES.includes(req.body?.category) ? req.body.category : 'product';
   if (!imageGenerator.isConfigured()) {
+    console.warn('[IMAGE] generation failed (upstream_status=none, http_status=503, code=not_configured)');
     return res.status(503).json({ error: 'Генерация изображений не настроена' });
   }
 
@@ -344,7 +348,7 @@ api.post('/images/generate', async (req, res) => {
     res.type('png').set('Cache-Control', 'no-store').send(image);
   } catch (err) {
     if (!(err instanceof ImageGenerationError)) throw err;
-    console.warn(`[IMAGE] generation failed (${err.code})`);
+    console.warn(`[IMAGE] generation failed (upstream_status=${err.upstreamStatus ?? 'none'}, http_status=${err.status}, code=${err.code})`);
     res.status(err.status).json({ error: err.message });
   }
 });

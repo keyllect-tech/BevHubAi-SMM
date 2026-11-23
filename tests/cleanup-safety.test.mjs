@@ -792,7 +792,7 @@ test('safe-remove: a file that existed before the operation is never removed', (
 
 test('safe-remove: a file written during the operation is removed', () => {
   const box = sandbox('safe-remove-new');
-  const startedAt = Date.now();
+  const startedAt = Date.now() - 1000;
   const own = touch(path.join(box.dir, 'scratch.mp3'), { bytes: 128 });
   const result = removeOwnFile(own, { dir: box.dir, name: 'scratch.mp3', notOlderThan: startedAt });
   assert.deepEqual(result, { removed: true, reason: 'removed' });

@@ -12,7 +12,7 @@ const input = {
   category: 'product',
 };
 
-test('image generator sends a bounded OpenAI Images request and returns PNG bytes', async () => {
+test('image generator uses the default model and returns PNG bytes from b64_json', async () => {
   let request;
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
@@ -27,9 +27,25 @@ test('image generator sends a bounded OpenAI Images request and returns PNG byte
   assert.equal(generator.isConfigured(), true);
   assert.equal(request.url, 'https://api.openai.com/v1/images/generations');
   assert.equal(request.options.headers.Authorization, 'Bearer synthetic-key');
-  assert.equal(body.model, 'gpt-image-1');
+  assert.equal(body.model, 'gpt-image-2.5-flare');
+  assert.equal(body.size, '1024x1024');
   assert.match(body.prompt, /Зелёный чай с жасмином/);
   assert.deepEqual(result, png);
+});
+
+test('image generator accepts an explicitly configured model', async () => {
+  let requestBody;
+  const generator = createImageGenerator({
+    apiKey: 'synthetic-key',
+    model: 'gpt-image-2.6-flare',
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200 });
+    },
+  });
+
+  await generator.generate(input);
+  assert.equal(requestBody.model, 'gpt-image-2.6-flare');
 });
 
 test('image generator rejects missing configuration without making a request', async () => {
@@ -45,15 +61,74 @@ test('image generator rejects missing configuration without making a request', a
   assert.equal(called, false);
 });
 
-test('image generator reports provider errors without exposing upstream response content', async () => {
+test('image generator classifies a retired or unknown model as an invalid upstream request', async () => {
   const generator = createImageGenerator({
     apiKey: 'synthetic-key',
-    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private upstream detail' } }), { status: 401 }),
+    fetchImpl: async () => new Response(JSON.stringify({ error: { code: 'model_not_found', message: 'private upstream detail' } }), { status: 404 }),
   });
 
   await assert.rejects(
     generator.generate(input),
-    (err) => err instanceof ImageGenerationError && err.status === 503 && !err.message.includes('private upstream detail'),
+    (err) =>
+      err instanceof ImageGenerationError &&
+      err.code === 'invalid_request' &&
+      err.status === 502 &&
+      err.upstreamStatus === 404 &&
+      !err.message.includes('private upstream detail') &&
+      !err.message.includes('synthetic-key'),
+  );
+});
+
+test('image generator classifies upstream authorization failures without exposing response content', async () => {
+  for (const upstreamStatus of [401, 403]) {
+    const generator = createImageGenerator({
+      apiKey: 'synthetic-key',
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ error: { code: 'invalid_api_key', message: 'private upstream detail' } }), {
+          status: upstreamStatus,
+        }),
+    });
+
+    await assert.rejects(
+      generator.generate(input),
+      (err) =>
+        err instanceof ImageGenerationError &&
+        err.code === 'auth' &&
+        err.status === 502 &&
+        err.upstreamStatus === upstreamStatus &&
+        !err.message.includes('private upstream detail') &&
+        !err.message.includes('synthetic-key'),
+    );
+  }
+});
+
+test('image generator preserves rate-limit status and classifies provider failures', async () => {
+  const rateLimited = createImageGenerator({
+    apiKey: 'synthetic-key',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private upstream detail' } }), { status: 429 }),
+  });
+  await assert.rejects(
+    rateLimited.generate(input),
+    (err) =>
+      err instanceof ImageGenerationError &&
+      err.code === 'rate_limit' &&
+      err.status === 429 &&
+      err.upstreamStatus === 429 &&
+      !err.message.includes('private upstream detail'),
+  );
+
+  const providerFailed = createImageGenerator({
+    apiKey: 'synthetic-key',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private upstream detail' } }), { status: 503 }),
+  });
+  await assert.rejects(
+    providerFailed.generate(input),
+    (err) =>
+      err instanceof ImageGenerationError &&
+      err.code === 'provider' &&
+      err.status === 502 &&
+      err.upstreamStatus === 503 &&
+      !err.message.includes('private upstream detail'),
   );
 });
 
@@ -100,6 +175,18 @@ test('image generator rejects malformed JSON and missing image data', async () =
   await assert.rejects(
     missingImage.generate(input),
     (err) => err instanceof ImageGenerationError && err.code === 'bad_response',
+  );
+});
+
+test('image generator rejects invalid base64 data', async () => {
+  const generator = createImageGenerator({
+    apiKey: 'synthetic-key',
+    fetchImpl: async () => new Response(JSON.stringify({ data: [{ b64_json: 'not-valid-base64!' }] }), { status: 200 }),
+  });
+
+  await assert.rejects(
+    generator.generate(input),
+    (err) => err instanceof ImageGenerationError && err.code === 'bad_response' && err.status === 502,
   );
 });
 

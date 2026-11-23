@@ -1,21 +1,37 @@
 const IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
-const IMAGE_MODEL = 'gpt-image-1';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5-flare';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_BASE64_LENGTH = Math.ceil((MAX_IMAGE_BYTES * 4) / 3);
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export class ImageGenerationError extends Error {
-  constructor(code, message, status, cause) {
+  constructor(code, message, status, cause, upstreamStatus) {
     super(message);
     this.name = 'ImageGenerationError';
     this.code = code;
     this.status = status;
     if (cause) this.cause = cause;
+    if (upstreamStatus !== undefined) this.upstreamStatus = upstreamStatus;
   }
 }
 
-export function createImageGenerator({ apiKey, fetchImpl = fetch, timeoutMs = 90000 } = {}) {
+function classifyProviderError(status) {
+  if (status === 401 || status === 403) {
+    return { code: 'auth', message: 'Сервис генерации изображений отклонил авторизацию', status: 502 };
+  }
+  if (status === 400 || status === 404 || status === 422) {
+    return { code: 'invalid_request', message: 'Сервис генерации изображений отклонил модель или параметры запроса', status: 502 };
+  }
+  if (status === 429) {
+    return { code: 'rate_limit', message: 'Лимит запросов сервиса генерации изображений исчерпан. Попробуйте позже.', status: 429 };
+  }
+  return { code: 'provider', message: 'Сервис генерации изображений временно недоступен', status: 502 };
+}
+
+export function createImageGenerator({ apiKey, model = DEFAULT_IMAGE_MODEL, fetchImpl = fetch, timeoutMs = 90000 } = {}) {
+  const selectedModel = typeof model === 'string' && model.trim() ? model.trim() : DEFAULT_IMAGE_MODEL;
+
   return {
     isConfigured: () => Boolean(apiKey),
 
@@ -42,7 +58,7 @@ export function createImageGenerator({ apiKey, fetchImpl = fetch, timeoutMs = 90
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ model: IMAGE_MODEL, prompt, size: '1024x1024' }),
+          body: JSON.stringify({ model: selectedModel, prompt, size: '1024x1024' }),
           signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (err) {
@@ -57,9 +73,8 @@ export function createImageGenerator({ apiKey, fetchImpl = fetch, timeoutMs = 90
 
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        const status = response.status === 429 ? 429 : response.status >= 500 ? 502 : 503;
-        const code = response.status === 429 ? 'rate_limit' : response.status === 401 || response.status === 403 ? 'auth' : 'provider';
-        throw new ImageGenerationError(code, 'Сервис генерации изображений отклонил запрос', status);
+        const error = classifyProviderError(response.status);
+        throw new ImageGenerationError(error.code, error.message, error.status, undefined, response.status);
       }
 
       const encoded = data?.data?.[0]?.b64_json;
