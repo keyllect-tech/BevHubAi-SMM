@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Video as VideoIcon, Play, AlertCircle, PlusCircle, Clock } from 'lucide-react';
 import { api, apiUrl } from '@/lib/api';
+import { AuthenticatedImage } from '@/components/ui/AuthenticatedImage';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, Badge } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -99,8 +100,7 @@ export function VideosPage() {
               <Card hover className="group cursor-pointer">
                 <div className="relative aspect-[9/16] bg-bg-elevated rounded-lg overflow-hidden mb-3">
                   {video.thumbnail_url ? (
-                    <img
-                      crossOrigin="use-credentials"
+                    <AuthenticatedImage
                       src={apiUrl(video.thumbnail_url)}
                       alt={video.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

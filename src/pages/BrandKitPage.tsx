@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Palette, Upload, Check, Image as ImageIcon } from 'lucide-react';
 import { api, apiUrl } from '@/lib/api';
+import { AuthenticatedImage } from '@/components/ui/AuthenticatedImage';
 import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card } from '@/components/ui/Card';
@@ -153,7 +154,7 @@ export function BrandKitPage() {
                     <div className="flex items-center gap-4">
                       <div className="h-16 w-16 rounded-lg bg-bg-elevated border border-border-default flex items-center justify-center overflow-hidden shrink-0">
                         {logoUrl ? (
-                          <img crossOrigin="use-credentials" src={apiUrl(logoUrl)} alt="Logo" className="w-full h-full object-contain" />
+                          <AuthenticatedImage src={apiUrl(logoUrl)} alt="Логотип" className="w-full h-full object-contain" />
                         ) : (
                           <ImageIcon size={24} className="text-muted" />
                         )}

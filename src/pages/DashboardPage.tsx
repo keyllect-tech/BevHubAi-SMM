@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Video as VideoIcon, Calendar, FolderKanban, Sparkles, Play, AlertCircle } from 'lucide-react';
 import { api, apiUrl } from '@/lib/api';
+import { AuthenticatedImage } from '@/components/ui/AuthenticatedImage';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, Badge } from '@/components/ui/Card';
@@ -116,8 +117,7 @@ export function DashboardPage() {
               <Card hover className="group cursor-pointer">
                 <div className="relative aspect-[9/16] bg-bg-elevated rounded-lg overflow-hidden mb-3 max-h-48">
                   {video.thumbnail_url ? (
-                    <img
-                      crossOrigin="use-credentials"
+                    <AuthenticatedImage
                       src={apiUrl(video.thumbnail_url)}
                       alt={video.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

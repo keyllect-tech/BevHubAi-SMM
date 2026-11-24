@@ -4,6 +4,7 @@ import { Package, Image as ImageIcon, Mic, Film, Rocket, ArrowRight, ArrowLeft, 
 import { api, apiUrl, type ScriptSource } from '@/lib/api';
 import { newRequestId } from '@/lib/id';
 import { submitCreateVideo, validateWizardStep } from '@/lib/create-video-validation';
+import { AuthenticatedImage } from '@/components/ui/AuthenticatedImage';
 import { useToast } from '@/components/ui/Toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card } from '@/components/ui/Card';
@@ -479,7 +480,7 @@ export function CreateVideoPage() {
                 <div className="mt-6 grid grid-cols-3 sm:grid-cols-4 gap-3">
                   {images.map((img) => (
                     <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden bg-bg-elevated">
-                      <img crossOrigin="use-credentials" src={apiUrl(img.url)} alt={img.name} className="w-full h-full object-cover" />
+                      <AuthenticatedImage src={apiUrl(img.url)} alt={img.name} className="w-full h-full object-cover" />
                       <button
                         onClick={() => removeImage(img.id)}
                         aria-label={`Удалить ${img.name}`}
@@ -605,12 +606,6 @@ export function CreateVideoPage() {
               ) : scriptData ? (
                 <>
                 <div className="space-y-2 mb-6 p-4 rounded-lg bg-accent/5 border border-accent/20">
-                  <p className="text-xs mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className={scriptData.sourceKind === 'ai' ? 'text-accent' : 'text-muted'}>
-                      {scriptData.sourceLabel}
-                    </span>
-                    {scriptData.model && <span className="text-muted">· модель {scriptData.model}</span>}
-                  </p>
                   <ScriptLine label="0–3 с · хук" value={scriptData.hook} />
                   <ScriptLine label="3–8 с" value={scriptData.benefit1} />
                   <ScriptLine label="8–12 с" value={scriptData.benefit2} />

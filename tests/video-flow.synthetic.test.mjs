@@ -302,6 +302,29 @@ async function uploadSyntheticImage(harness) {
   return uploaded;
 }
 
+test('uploaded image remains available from its workspace file URL with the stored MIME type', async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  await harness.register(0);
+  await harness.register(1);
+
+  const uploaded = await uploadSyntheticImage(harness);
+  const response = await harness.request(`/files/${uploaded.id}`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /^image\/png\b/);
+
+  const row = harness.db.prepare('SELECT workspace_id, filename, mime_type FROM files WHERE id = ?').get(uploaded.id);
+  assert.equal(row.workspace_id, harness.workspaces[0]);
+  assert.equal(row.mime_type, 'image/png');
+  assert.deepEqual(
+    Buffer.from(await response.arrayBuffer()),
+    fs.readFileSync(path.join(harness.imagesDir, row.filename)),
+  );
+
+  const otherWorkspaceResponse = await harness.request(`/files/${uploaded.id}`, { workspaceId: harness.workspaces[1] });
+  assert.equal(otherWorkspaceResponse.status, 404);
+});
+
 async function createVideoThroughApi(harness) {
   const projectResponse = await harness.request('/projects', {
     method: 'POST',
