@@ -479,7 +479,7 @@ export function CreateVideoPage() {
                 <div className="mt-6 grid grid-cols-3 sm:grid-cols-4 gap-3">
                   {images.map((img) => (
                     <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden bg-bg-elevated">
-                      <img src={apiUrl(img.url)} alt={img.name} className="w-full h-full object-cover" />
+                      <img crossOrigin="use-credentials" src={apiUrl(img.url)} alt={img.name} className="w-full h-full object-cover" />
                       <button
                         onClick={() => removeImage(img.id)}
                         aria-label={`Удалить ${img.name}`}

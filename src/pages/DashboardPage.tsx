@@ -117,6 +117,7 @@ export function DashboardPage() {
                 <div className="relative aspect-[9/16] bg-bg-elevated rounded-lg overflow-hidden mb-3 max-h-48">
                   {video.thumbnail_url ? (
                     <img
+                      crossOrigin="use-credentials"
                       src={apiUrl(video.thumbnail_url)}
                       alt={video.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

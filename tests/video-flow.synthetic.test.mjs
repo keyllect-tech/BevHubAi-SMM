@@ -91,6 +91,7 @@ async function createHarness({
   apiScript = async (input) => providerResult(input),
   queueScript = async (input) => providerResult(input),
   scriptsPerHour = 30,
+  log = { warn() {} },
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bevhub-video-flow-synthetic-'));
   roots.push(root);
@@ -108,6 +109,7 @@ async function createHarness({
   const workspaces = [];
   const sessions = new Map();
   const registrations = [];
+  const credentials = [];
   const rate = createRateLimiter(db);
   const calls = { apiScript: 0, queueScript: 0, speech: 0, render: 0 };
   const queue = createGenerationQueue({
@@ -167,6 +169,7 @@ async function createHarness({
       defaultCta: () => 'Закажите сейчас',
       interruptedMessage: INTERRUPTED_MESSAGE,
       scriptsPerHour,
+      log,
     }),
   );
 
@@ -199,14 +202,16 @@ async function createHarness({
     registrations,
     baseUrl,
     async register(index) {
+      const name = `Synthetic ${index}`;
       const email = `synthetic-${crypto.randomUUID()}@example.test`;
+      const password = `synthetic-password-${index}`;
       const response = await fetch(`${baseUrl}/auth/register`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          name: `Synthetic ${index}`,
+          name,
           email,
-          password: `synthetic-password-${index}`,
+          password,
         }),
       });
       const data = await response.json();
@@ -216,8 +221,24 @@ async function createHarness({
       assert.ok(data.workspace.id);
       assert.ok(setCookie);
       sessions.set(data.workspace.id, setCookie.split(';', 1)[0]);
+      credentials[index] = { email, password };
       workspaces.push(data.workspace.id);
       registrations.push(data);
+      return data;
+    },
+    async login(index) {
+      const { email, password } = credentials[index];
+      const response = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+      const setCookie = response.headers.get('set-cookie');
+      assert.equal(response.status, 200);
+      assert.equal(data.user.email, email);
+      assert.ok(setCookie);
+      sessions.set(workspaces[index], setCookie.split(';', 1)[0]);
       return data;
     },
     async request(url, { workspaceId = workspaces[0], ...options } = {}) {
@@ -369,6 +390,82 @@ async function getVideoUntil(harness, videoId, targetStatus) {
   }
   assert.fail(`video did not reach ${targetStatus}`);
 }
+
+test('video file 404 logs safe diagnostics without user identifiers or paths', async (t) => {
+  const warnings = [];
+  const harness = await createHarness({
+    log: { warn: (message) => warnings.push(message) },
+  });
+  t.after(() => harness.close());
+
+  const { created } = await createVideoThroughApi(harness);
+  await getVideoUntil(harness, created.id, 'completed');
+  const row = harness.db.prepare('SELECT video_file FROM videos WHERE id = ?').get(created.id);
+  const videoPath = path.join(harness.videosDir, row.video_file);
+  assert.ok(fs.existsSync(videoPath));
+
+  harness.db.prepare("UPDATE videos SET status = 'processing' WHERE id = ?").run(created.id);
+  const statusResponse = await harness.request(`/videos/${created.id}/file`);
+  assert.equal(statusResponse.status, 404);
+  const statusLog = JSON.parse(warnings[0].slice('[VIDEO_FILE_404] '.length));
+  assert.deepEqual(statusLog, {
+    reason: 'status_not_completed',
+    status: 'processing',
+    workspace_match: true,
+    file_exists: true,
+    file_bytes: SYNTHETIC_MP4.length,
+  });
+
+  harness.db.prepare("UPDATE videos SET status = 'completed' WHERE id = ?").run(created.id);
+  fs.rmSync(videoPath);
+  const missingFileResponse = await harness.request(`/videos/${created.id}/file`);
+  assert.equal(missingFileResponse.status, 404);
+  const missingFileLog = JSON.parse(warnings[1].slice('[VIDEO_FILE_404] '.length));
+  assert.deepEqual(missingFileLog, {
+    reason: 'file_missing',
+    status: 'completed',
+    workspace_match: true,
+    file_exists: false,
+    file_bytes: null,
+    file_error_code: 'ENOENT',
+  });
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings.every((warning) => !warning.includes(harness.root)));
+  assert.ok(warnings.every((warning) => !warning.includes(harness.workspaces[0])));
+  assert.ok(warnings.every((warning) => !warning.includes(created.id)));
+  assert.ok(warnings.every((warning) => !warning.includes(path.basename(row.video_file))));
+});
+
+test('registration, login, and project saving persist data in the owning workspace', async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+
+  const createdResponse = await harness.request('/projects', {
+    method: 'POST',
+    json: { name: 'Persistent synthetic project', description: 'Project saved for the user flow test' },
+  });
+  assert.equal(createdResponse.status, 201);
+  const createdProject = (await createdResponse.json()).project;
+  assert.equal(createdProject.workspace_id, harness.workspaces[0]);
+
+  const storedProject = harness.db
+    .prepare('SELECT id, workspace_id, name, description FROM projects WHERE id = ?')
+    .get(createdProject.id);
+  assert.deepEqual({ ...storedProject }, {
+    id: createdProject.id,
+    workspace_id: harness.workspaces[0],
+    name: 'Persistent synthetic project',
+    description: 'Project saved for the user flow test',
+  });
+
+  const login = await harness.login(0);
+  assert.equal(login.workspace.id, harness.workspaces[0]);
+  const projectsAfterLogin = await harness.request('/projects');
+  assert.deepEqual((await projectsAfterLogin.json()).projects.map(({ id }) => id), [createdProject.id]);
+
+  const otherWorkspaceProjects = await harness.request('/projects', { workspaceId: harness.workspaces[1] });
+  assert.deepEqual((await otherWorkspaceProjects.json()).projects, []);
+});
 
 test('POST /videos rejects an unsupported client claim before storing or enqueueing it', async () => {
   const harness = await createHarness();

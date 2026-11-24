@@ -85,6 +85,7 @@ export function createVideoApiRouter({
   scriptsPerHour = 30,
   createUploadId = () => crypto.randomUUID(),
   createUploadWriteStream = (target, options) => fs.createWriteStream(target, options),
+  log = console,
 }) {
   const router = express.Router();
   const upload = multer({
@@ -492,7 +493,32 @@ export function createVideoApiRouter({
     requireDownloadQuota(req, res);
     const video = getOwnedVideo(req, req.params.id);
     const abs = video?.video_file && path.join(videosDir, video.video_file);
-    if (!video || video.status !== 'completed' || !abs || !fs.existsSync(abs)) throw httpError(404, 'Видео не найдено');
+    let fileStat = null;
+    let fileErrorCode;
+    if (abs) {
+      try {
+        fileStat = fs.statSync(abs);
+      } catch (err) {
+        fileErrorCode = err.code || 'UNKNOWN';
+      }
+    }
+
+    let reason = null;
+    if (!video) reason = 'not_found_or_not_owned';
+    else if (video.status !== 'completed') reason = 'status_not_completed';
+    else if (!abs) reason = 'missing_filename';
+    else if (!fileStat) reason = 'file_missing';
+    if (reason) {
+      log.warn(`[VIDEO_FILE_404] ${JSON.stringify({
+        reason,
+        status: video?.status || null,
+        workspace_match: video ? true : null,
+        file_exists: Boolean(fileStat),
+        file_bytes: fileStat?.isFile() ? fileStat.size : null,
+        file_error_code: fileErrorCode,
+      })}`);
+      throw httpError(404, 'Видео не найдено');
+    }
     if (req.query.download === '1') {
       res.attachment(`${video.title.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').slice(0, 80) || 'bevhub-video'}.mp4`);
     }

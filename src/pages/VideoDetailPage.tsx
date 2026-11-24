@@ -321,6 +321,7 @@ export function VideoDetailPage() {
                 {video.video_url ? (
                   <video
                     key={video.video_url}
+                    crossOrigin="use-credentials"
                     src={apiUrl(video.video_url)}
                     controls
                     playsInline
